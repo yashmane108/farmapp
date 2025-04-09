@@ -201,7 +201,7 @@ fun SellerDashboard(
                 value = searchQuery,
                 onValueChange = { viewModel.setSearchQuery(it) },
             modifier = Modifier
-                .fillMaxWidth()g
+                .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Search") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
