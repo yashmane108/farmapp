@@ -1,5 +1,5 @@
 package com.example.myapplicationf.features.marketplace
-
+// first changes
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
@@ -201,7 +201,7 @@ fun SellerDashboard(
                 value = searchQuery,
                 onValueChange = { viewModel.setSearchQuery(it) },
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth()g
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("Search") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
@@ -214,7 +214,7 @@ fun SellerDashboard(
                     focusedContainerColor = Color.White
             )
         )
-        
+
             // Category Chips
         LazyRow(
                 modifier = Modifier
