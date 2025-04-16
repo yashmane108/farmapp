@@ -65,7 +65,8 @@ class LocationService {
     ).sorted() // Keep the list alphabetically sorted
 
     fun getSuggestions(query: String): List<String> {
-        if (query.isBlank()) return emptyList()
+        // Return empty list only if query is completely empty
+        if (query.isEmpty()) return emptyList()
         
         // First get exact matches that start with the query
         val startsWithMatches = villages.filter { 
@@ -78,7 +79,8 @@ class LocationService {
         }
         
         // Return starts-with matches first, then contains matches
-        return startsWithMatches + containsMatches
+        // Limit total suggestions to 10 to avoid overwhelming the UI
+        return (startsWithMatches + containsMatches).take(10)
     }
 
     suspend fun getLocationSuggestions(query: String): List<String> {

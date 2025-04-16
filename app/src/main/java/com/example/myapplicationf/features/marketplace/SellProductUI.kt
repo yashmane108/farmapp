@@ -5,15 +5,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -30,12 +32,43 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.material3.SwitchDefaults
+import coil.request.ImageRequest
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.TextFieldValue
+import com.example.myapplicationf.features.marketplace.models.Category
+import com.example.myapplicationf.features.marketplace.models.Product
+import com.example.myapplicationf.ui.theme.HeaderBackground
+import com.example.myapplicationf.ui.theme.HeaderText
+import com.example.myapplicationf.ui.theme.HeaderIcon
 
 private val MarketplaceGreen = Color(0xFF4CAF50)
 private val LightGreen = Color(0xFFE8F5E9)
 private val DarkGreen = Color(0xFF388E3C)
 private val DisabledGreen = Color(0xFFA5D6A7)
+
+@Composable
+fun WeightChip(
+    weight: String,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.height(40.dp),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MarketplaceGreen),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = Color.White,
+            contentColor = MarketplaceGreen
+        )
+    ) {
+        Text(
+            text = weight,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,19 +77,42 @@ fun EnhancedSellProductScreen(
     onBackClick: () -> Unit,
     onDashboardClick: () -> Unit
 ) {
-    val product = viewModel.selectedProduct.value
+    val listedCrop by viewModel.selectedProduct.collectAsState()
+    // Convert ListedCrop to Product
+    val product = listedCrop?.let { crop ->
+        Product(
+            name = crop.name,
+            basePrice = crop.rate.toDouble(),
+            category = crop.category,
+            rate = crop.rate.toDouble(),
+            priceTrend = PriceTrend.STABLE
+        )
+    }
+    
     var quantity by remember { mutableStateOf(0) }
     var location by remember { mutableStateOf("") }
     var isRateEditable by remember { mutableStateOf(false) }
+    var customRate by rememberSaveable { mutableStateOf("") }
+    val effectiveRate = viewModel.getEffectiveRate()
+    val scrollState = rememberScrollState()
     
+    // Calculate effective rate based on custom rate or product's original rate
+    val getEffectiveRate = {
+        customRate.toDoubleOrNull() ?: product?.rate ?: 0.0
+    }
+
+    // Function to update custom rate
+    val setCustomRate = { value: String ->
+        customRate = value
+    }
+
     Scaffold(
-        containerColor = Color.White,
         topBar = {
             TopAppBar(
-                title = { Text("Market.Place") },
+                title = { Text("Sell Product", color = HeaderText) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = HeaderIcon)
                     }
                 },
                 actions = {
@@ -65,76 +121,86 @@ fun EnhancedSellProductScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MarketplaceGreen,
-                    titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White,
-                    actionIconContentColor = Color.White
+                    containerColor = HeaderBackground
                 )
             )
-        }
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(
+        },
+        bottomBar = {
+            Surface(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(padding)
-                    .padding(bottom = 100.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+                color = Color(0xFFE8F5E9),
+                shadowElevation = 8.dp
             ) {
-                // Product Image with Name and Icon Overlay
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(240.dp)
-                ) {
-                    // Full size background image
-                    AsyncImage(
-                        model = product?.fullImagePath,
-                        contentDescription = product?.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                    
-                    // Product name overlay
-                    Text(
-                        text = product?.name ?: "",
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(16.dp),
-                        color = Color.White,
-                        fontSize = 40.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-                    
-                    // Circular icon overlay at bottom center
-                    AsyncImage(
-                        model = product?.iconImagePath,
-                        contentDescription = "${product?.name} icon",
-                        modifier = Modifier
-                            .size(80.dp)
-                            .clip(CircleShape)
-                            .align(Alignment.BottomCenter)
-                            .offset(y = 40.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-
-                // Content
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(top = 40.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Today's Rate with Switch
+                    Text(
+                        text = "Amount: Rs. ${getEffectiveRate() * quantity}",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color.Black
+                    )
+                    
+                    Button(
+                        onClick = { /* Handle sell action */ },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF084521),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            "Sell",
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontWeight = FontWeight.Medium
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Product Image Section
+            item {
+                ProductImage(product = product ?: Product(
+                    name = "",
+                    basePrice = 0.0,
+                    category = Category.GRAINS
+                ))
+                Spacer(modifier = Modifier.height(45.dp))
+            }
+
+            // Rate Options
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // Today's Rate Option
                         Row(
@@ -150,13 +216,13 @@ fun EnhancedSellProductScreen(
                                     uncheckedThumbColor = Color.Gray,
                                     uncheckedTrackColor = Color.LightGray
                                 ),
-                                modifier = Modifier.padding(end = 8.dp)
+                                modifier = Modifier.padding(end = 4.dp)
                             )
                             Text(
                                 text = "Today's Rate:",
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "₹${product?.rate ?: 0}/kg",
                                 style = MaterialTheme.typography.bodyMedium
@@ -165,7 +231,7 @@ fun EnhancedSellProductScreen(
                                 Icons.Default.TrendingUp,
                                 contentDescription = "Trending",
                                 tint = MarketplaceGreen,
-                                modifier = Modifier.padding(start = 4.dp)
+                                modifier = Modifier.padding(start = 2.dp)
                             )
                         }
 
@@ -183,19 +249,19 @@ fun EnhancedSellProductScreen(
                                     uncheckedThumbColor = Color.Gray,
                                     uncheckedTrackColor = Color.LightGray
                                 ),
-                                modifier = Modifier.padding(end = 8.dp)
+                                modifier = Modifier.padding(end = 4.dp)
                             )
                             Text(
                                 text = "Enter Your Rate:",
                                 style = MaterialTheme.typography.bodyMedium
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             if (isRateEditable) {
                                 OutlinedTextField(
-                                    value = viewModel.customRate.collectAsState().value,
-                                    onValueChange = { viewModel.setCustomRate(it) },
+                                    value = customRate,
+                                    onValueChange = { setCustomRate(it) },
                                     modifier = Modifier
-                                        .height(40.dp)
+                                        .height(36.dp)
                                         .background(Color(0xFFEEEEEE), RoundedCornerShape(4.dp)),
                                     placeholder = { Text("Enter here") },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -208,107 +274,110 @@ fun EnhancedSellProductScreen(
                             }
                         }
                     }
+                }
+            }
 
-                    // Quantity Selector
-                    Spacer(modifier = Modifier.height(16.dp))
-            
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp)
-                            .background(Color(0xFFF5F5F5), RoundedCornerShape(12.dp))
-                            .padding(16.dp)
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                "Quantity:",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                FilledIconButton(
-                                    onClick = { if (quantity > 0) quantity-- },
-                                    modifier = Modifier.size(48.dp),
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MarketplaceGreen,
-                                        contentColor = Color.White
-                                    )
-                                ) {
-                                    Icon(Icons.Default.Remove, "Decrease")
-                                }
-
-                                Text(
-                                    text = String.format("%02d Kg", quantity),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .background(Color.White)
-                                        .padding(vertical = 12.dp),
-                                    textAlign = TextAlign.Center,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-
-                                FilledIconButton(
-                                    onClick = { quantity++ },
-                                    modifier = Modifier.size(48.dp),
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MarketplaceGreen,
-                                        contentColor = Color.White
-                                    )
-                                ) {
-                                    Icon(Icons.Default.Add, "Increase")
-                                }
-                            }
-                        }
-                    }
-
-                    // Reduced spacing between quantity and weight chips
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Weight Chips
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf("5 Kg", "15 Kg", "25 Kg", "35 Kg", "45 Kg", "55 Kg", "65 Kg", "75 Kg").forEach { weight ->
-                            WeightChip(weight) { 
-                                quantity = weight.substring(0, weight.indexOf(" ")).toInt() 
-                            }
-                        }
-                    }
-
-                    // Location
+            // Quantity Selector
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 16.dp)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "Quantity:",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilledIconButton(
+                                onClick = { if (quantity > 0) quantity-- },
+                                modifier = Modifier.size(48.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MarketplaceGreen,
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(Icons.Default.Remove, "Decrease")
+                            }
+
+                            Text(
+                                text = String.format("%02d Kg", quantity),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Color.White)
+                                    .padding(vertical = 12.dp),
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            FilledIconButton(
+                                onClick = { quantity++ },
+                                modifier = Modifier.size(48.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MarketplaceGreen,
+                                    contentColor = Color.White
+                                )
+                            ) {
+                                Icon(Icons.Default.Add, "Increase")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Weight Chips
+            item {
+                SingleRowScrollableChips(
+                    weights = listOf("5 Kg", "15 Kg", "25 Kg", "35 Kg", "45 Kg", "55 Kg", "65 Kg", "75 Kg"),
+                    onWeightSelected = { weight ->
+                        quantity = weight.substring(0, weight.indexOf(" ")).toInt() 
+                    }
+                )
+            }
+
+            // Location Section
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
                     ) {
                         Text(
                             "Location:",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(bottom = 4.dp)
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
 
-                        // Location Input Field with improved styling
                         OutlinedTextField(
                             value = location,
-                            onValueChange = { location = it },
+                            onValueChange = { newLocation -> 
+                                location = newLocation
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 56.dp)
-                                .border(
-                                    width = 1.dp,
-                                    color = if (location.isNotEmpty()) MarketplaceGreen else Color.Gray,
-                                    shape = RoundedCornerShape(8.dp)
-                                ),
+                                .heightIn(min = 56.dp),
                             placeholder = { 
                                 Text(
                                     "Type location here",
@@ -317,96 +386,76 @@ fun EnhancedSellProductScreen(
                                     )
                                 ) 
                             },
-                            singleLine = true,
-                            shape = RoundedCornerShape(8.dp),
+                            textStyle = MaterialTheme.typography.bodyMedium,
                             colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = Color(0xFFF5F5F5),
+                                focusedContainerColor = Color(0xFFF5F5F5),
                                 unfocusedBorderColor = Color.Transparent,
                                 focusedBorderColor = Color.Transparent,
-                                unfocusedContainerColor = Color.White,
-                                focusedContainerColor = Color.White
+                                cursorColor = MarketplaceGreen,
+                                focusedTextColor = Color.Black,
+                                unfocusedTextColor = Color.Black
                             ),
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                color = Color.Black
-                            )
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true
                         )
 
-                        // Suggestions Box with improved styling
                         if (location.isNotEmpty()) {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 150.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                border = BorderStroke(1.dp, Color.Gray),
-                                color = Color.White,
-                                shadowElevation = 4.dp
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp)
-                                ) {
-                                    listOf("Suggestion 1", "Suggestion 2").forEach { suggestion ->
-                                        Surface(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable { location = suggestion },
-                                            color = Color.White
-                                        ) {
-                                            Text(
-                                                text = suggestion,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                                style = MaterialTheme.typography.bodyMedium
-                                            )
-                                        }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val filteredSuggestions = listOf(
+                                "Mumbai, Maharashtra",
+                                "Delhi, New Delhi",
+                                "Bangalore, Karnataka",
+                                "Chennai, Tamil Nadu",
+                                "Kolkata, West Bengal",
+                                "Hyderabad, Telangana",
+                                "Pune, Maharashtra",
+                                "Ahmedabad, Gujarat"
+                            ).filter { 
+                                it.lowercase().contains(location.lowercase()) 
+                            }
+                            if (filteredSuggestions.isNotEmpty()) {
+                                LocationSuggestions(
+                                    suggestions = filteredSuggestions,
+                                    onSuggestionSelected = { suggestion ->
+                                        location = suggestion
                                     }
-                                }
+                                )
                             }
                         }
                     }
                 }
             }
 
-            // Amount and Sell Button - Fixed at bottom with increased top padding
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
-                color = LightGreen,
-                shadowElevation = 8.dp
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 24.dp,
-                            bottom = 16.dp
-                        ),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Amount: Rs. ${viewModel.getEffectiveRate() * quantity}",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-            
-                    Button(
-                        onClick = { /* Handle sell action */ },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (location.isNotBlank()) DarkGreen else DisabledGreen,
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        enabled = location.isNotBlank()
-                    ) {
-                        Text("Sell", fontWeight = FontWeight.Bold)
-                    }
+            // Bottom spacing
+            item {
+                Spacer(modifier = Modifier.height(80.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SingleRowScrollableChips(
+    weights: List<String>,
+    onWeightSelected: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            weights.forEach { weight ->
+                WeightChip(weight = weight) {
+                    onWeightSelected(weight)
                 }
             }
         }
@@ -414,20 +463,115 @@ fun EnhancedSellProductScreen(
 }
 
 @Composable
-fun WeightChip(
-    weight: String,
-    onClick: () -> Unit
+private fun LocationSuggestions(
+    suggestions: List<String>,
+    onSuggestionSelected: (String) -> Unit
 ) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = Modifier.height(40.dp),
-        shape = RoundedCornerShape(20.dp),
-        border = ButtonDefaults.outlinedButtonBorder,
-        colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = Color.Black,
-            containerColor = Color.White
-        )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, Color.Gray),
+        color = Color.White,
+        shadowElevation = 2.dp
     ) {
-        Text(weight)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 200.dp)
+        ) {
+            suggestions.forEach { suggestion ->
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSuggestionSelected(suggestion) },
+                    color = Color.White
+                ) {
+                    Text(
+                        text = suggestion,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Black
+                    )
+                    Divider(color = Color.LightGray, thickness = 0.5.dp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProductImage(
+    product: Product,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var isError by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .background(Color.LightGray),
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data("file:///android_asset/food_img/food Full Img/${if (product.name == "Soybean") "Soybeans" else product.name} Fullimg.jpg")
+                .crossfade(true)
+                .build(),
+            contentDescription = product.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            onError = { isError = true }
+        )
+
+        if (isError) {
+            Icon(
+                imageVector = Icons.Default.Image,
+                contentDescription = "Image placeholder",
+                modifier = Modifier.size(48.dp),
+                tint = Color.Gray
+            )
+        }
+    }
+}
+
+@Composable
+fun ProductIcon(
+    product: Product,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var isError by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .size(80.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFF5F5F5)),
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data("file:///android_asset/food_img/food Icon/${if (product.name == "Soybean") "Soybeans" else product.name} icon.${if (product.name in listOf("Soybean", "Rice", "Wheat")) "jpeg" else "jpg"}")
+                .crossfade(true)
+                .build(),
+            contentDescription = product.name,
+            modifier = Modifier
+                .size(60.dp)
+                .clip(CircleShape),
+            contentScale = ContentScale.Crop,
+            onError = { isError = true }
+        )
+
+        if (isError) {
+            Text(
+                text = product.name.first().toString(),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 } 

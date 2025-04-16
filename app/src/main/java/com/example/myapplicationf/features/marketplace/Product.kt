@@ -1,12 +1,21 @@
 package com.example.myapplicationf.features.marketplace
 
+import com.example.myapplicationf.features.marketplace.models.Category
+
+enum class PriceTrend {
+    UP,
+    DOWN,
+    STABLE
+}
+
 data class Product(
+    val id: String = "",
     val name: String,
-    val rate: Int,
-    val category: String = "",
-    val fullImagePath: String = "food_img/food Full Img/${if (name == "Soybean") "Soybeans" else name} Fullimg.jpg",
-    val iconImagePath: String = "food_img/food Icon/${if (name == "Soybean") "Soybeans" else name} icon.${if (name in listOf("Soybean", "Rice", "Wheat")) "jpeg" else "jpg"}",
-    val priceTrend: PriceTrend = PriceTrend.STABLE
+    val basePrice: Double = 0.0,
+    val category: Category = Category.VEGETABLES,
+    val priceTrend: PriceTrend = PriceTrend.STABLE,
+    val description: String = "",
+    val imageUrl: String = ""
 )
 
 data class Variety(
@@ -14,13 +23,6 @@ data class Variety(
     val description: String,
     val isAvailable: Boolean = true
 )
-
-enum class ProductCategory {
-    VEGETABLES,
-    FRUITS,
-    OILSEEDS,
-    GRAINS
-}
 
 // Predefined varieties for different products
 object ProductVarieties {
@@ -47,6 +49,4 @@ object ProductVarieties {
         Variety("JL-24", "Drought resistant"),
         Variety("TMV-2", "Early maturing variety")
     )
-
-    // Add more product varieties as needed
 } 

@@ -12,6 +12,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.myapplicationf.ui.theme.HeaderBackground
+import com.example.myapplicationf.ui.theme.HeaderText
+import com.example.myapplicationf.ui.theme.HeaderIcon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -24,17 +27,20 @@ fun CommunityNewsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Community & News") },
+                title = { Text("Community & News", color = HeaderText) },
                 navigationIcon = {
                     IconButton(onClick = onBackPressed) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = HeaderIcon)
                     }
                 },
                 actions = {
                     IconButton(onClick = viewModel::refreshNews) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = HeaderIcon)
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = HeaderBackground
+                )
             )
         }
     ) { padding ->
