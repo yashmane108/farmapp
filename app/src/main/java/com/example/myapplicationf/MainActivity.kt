@@ -33,7 +33,7 @@ import com.example.myapplicationf.ui.theme.HeaderBackground
 import com.example.myapplicationf.ui.theme.HeaderText
 import com.example.myapplicationf.ui.theme.HeaderIcon
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
-// heloo
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
