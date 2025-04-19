@@ -19,6 +19,7 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        buildConfigField("String", "GEMINI_API_KEY", "\"AIzaSyCmtuGAAbhdCK3FmEu88ZyDm-lj-HbwkrU\"")
     }
 
     buildTypes {
@@ -39,6 +40,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
@@ -86,6 +88,9 @@ dependencies {
 
     // Add Accompanist System UI Controller
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.32.0")
+
+    // Add Google AI SDK
+    implementation("com.google.ai.client.generativeai:generativeai:0.1.1")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
