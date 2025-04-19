@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "128012155049",
+    "project_id": "farm-login-signup",
+    "storage_bucket": "farm-login-signup.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:128012155049:android:95076f6eb9d4c23d4c51b8",
+        "android_client_info": {
+          "package_name": "com.example.myapplicationf"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "128012155049-15p54mc451mn25ucffb30uk7u3f4vvb1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA10qzoxNVlZnf_ZvvYgsQw_U2wvDYaM_c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "128012155049-15p54mc451mn25ucffb30uk7u3f4vvb1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
