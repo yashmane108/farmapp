@@ -20,7 +20,8 @@ data class BuyerDetail(
     val name: String,
     val contactInfo: String,
     val address: String,
-    val requestedQuantity: Int
+    val requestedQuantity: Int,
+    val status: String = "PENDING"
 )
 
 enum class Category {

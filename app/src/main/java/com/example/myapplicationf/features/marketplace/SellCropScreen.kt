@@ -50,6 +50,7 @@ fun SellCropScreen(
     var locationExpanded by remember { mutableStateOf(false) }
     var useTodaysRate by remember { mutableStateOf(true) }
     var customRate by remember { mutableStateOf("") }
+    var contactNumber by remember { mutableStateOf("") }
     var categoryExpanded by remember { mutableStateOf(false) }
     var cropExpanded by remember { mutableStateOf(false) }
 
@@ -378,6 +379,32 @@ fun SellCropScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                // Contact Number
+                OutlinedTextField(
+                    value = contactNumber,
+                    onValueChange = { newValue ->
+                        // Only allow digits and limit to 10 characters
+                        if (newValue.length <= 10 && newValue.all { it.isDigit() }) {
+                            contactNumber = newValue
+                        }
+                    },
+                    label = { Text("Contact Number") },
+                    placeholder = { Text("Enter your 10-digit mobile number") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = BackgroundGray,
+                        focusedContainerColor = BackgroundGray,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedBorderColor = Color.Transparent
+                    ),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
                 // Location
                 Column(
                     modifier = Modifier
@@ -587,7 +614,7 @@ fun SellCropScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            if (selectedCrop != null && quantity > 0 && selectedVillage != null) {
+                            if (selectedCrop != null && quantity > 0 && selectedVillage != null && contactNumber.length == 10) {
                                 // Get the current user's information
                                 val currentUser = getUserInfo()
                                 
@@ -598,14 +625,14 @@ fun SellCropScreen(
                                     location = "$selectedTaluka, $selectedVillage",
                                     category = selectedCategory!!,
                                     sellerName = currentUser.name,
-                                    sellerContact = currentUser.contact
+                                    sellerContact = contactNumber
                                 )
                                 onBackPressed()
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = LightGreen),
-                        enabled = selectedCrop != null && quantity > 0 && selectedVillage != null
+                        enabled = selectedCrop != null && quantity > 0 && selectedVillage != null && contactNumber.length == 10
                     ) {
                         Text("Sell")
                     }

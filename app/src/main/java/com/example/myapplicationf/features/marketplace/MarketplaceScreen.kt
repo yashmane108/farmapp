@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,13 +29,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.BorderStroke
-import com.google.accompanist.swiperefresh.SwipeRefresh
-import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 import java.util.UUID
 import com.example.myapplicationf.ui.theme.HeaderBackground
 import com.example.myapplicationf.ui.theme.HeaderText
 import com.example.myapplicationf.ui.theme.HeaderIcon
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.accompanist.swiperefresh.SwipeRefresh
+import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 
 private val DarkGreen = Color(0xFF084521)
 private val LightGreen = Color(0xFF4CAF50)
@@ -44,6 +46,7 @@ private val BackgroundGray = Color(0xFFF5F5F5)
 fun MarketplaceScreen(
     onBackPressed: () -> Unit,
     onNavigateToSell: () -> Unit,
+    onNavigateToDashboard: () -> Unit,
     onCropSelected: (String) -> Unit,
     viewModel: MarketplaceViewModel = viewModel()
 ) {
@@ -116,7 +119,7 @@ fun MarketplaceScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Button(
-                    onClick = onBackPressed,
+                    onClick = onNavigateToDashboard,
                     colors = ButtonDefaults.buttonColors(containerColor = BackgroundGray),
                     shape = RoundedCornerShape(20.dp)
                 ) {
@@ -169,23 +172,22 @@ fun MarketplaceScreen(
             }
 
             // Crop Listings with SwipeRefresh
-            Box(modifier = Modifier.fillMaxSize()) {
-                SwipeRefresh(
-                    state = rememberSwipeRefreshState(isRefreshing),
-                    onRefresh = { viewModel.refresh() }
+            SwipeRefresh(
+                state = rememberSwipeRefreshState(isRefreshing),
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(filteredCrops) { crop ->
-                            CropListingCard(
-                                crop = crop,
-                                onClick = { onCropSelected(crop.id) }
-                            )
-                        }
+                    items(filteredCrops) { crop ->
+                        CropListingCard(
+                            crop = crop,
+                            onClick = { onCropSelected(crop.id) }
+                        )
                     }
                 }
             }
@@ -199,6 +201,9 @@ fun CropListingCard(
     crop: ListedCrop,
     onClick: () -> Unit
 ) {
+    var expanded by remember { mutableStateOf(false) }
+    val hasBuyerDetails = crop.buyerDetails.isNotEmpty()
+
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -214,60 +219,84 @@ fun CropListingCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = crop.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Black,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = crop.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "Location: ${crop.location}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Gray
+                    )
+                }
                 
-                if (crop.isOwnListing) {
-                    Surface(
-                        modifier = Modifier.padding(top = 4.dp),
-                        color = LightGreen,
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = "Own",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                if (hasBuyerDetails) {
+                    IconButton(onClick = { expanded = !expanded }) {
+                        Icon(
+                            imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (expanded) "Show less" else "Show more"
                         )
                     }
                 }
-                Text(
-                    text = "₹${crop.rate}/kg",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = DarkGreen,
-                    fontWeight = FontWeight.Bold
-                )
             }
             
             Spacer(modifier = Modifier.height(8.dp))
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Quantity: ${crop.quantity} kg",
-                    style = MaterialTheme.typography.bodyMedium
+                    text = "Rate: ₹${crop.rate}/kg",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DarkGreen,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = crop.location,
+                    text = "Qty: ${crop.quantity} kg",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
             
-            Spacer(modifier = Modifier.height(4.dp))
-            
-            Text(
-                text = "Seller: ${crop.sellerName ?: "Anonymous"}",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
+            if (expanded && hasBuyerDetails) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Divider()
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "Buyer Details",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                crop.buyerDetails.forEach { buyer ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column {
+                        Text(
+                            text = "Name: ${buyer.name}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "Contact: ${buyer.contactInfo}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "Address: ${buyer.address}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "Requested Quantity: ${buyer.requestedQuantity} kg",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
         }
     }
 }

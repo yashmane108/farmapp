@@ -6,6 +6,7 @@ import com.example.myapplicationf.auth.AuthHelper
 import com.example.myapplicationf.features.marketplace.models.BuyerDetail
 import com.example.myapplicationf.features.marketplace.models.Category
 import com.example.myapplicationf.features.marketplace.models.ListedCrop
+import com.example.myapplicationf.features.marketplace.models.PurchaseRequest
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -57,6 +58,12 @@ class MarketplaceViewModel : ViewModel() {
     private val _listedCrops = MutableStateFlow<List<ListedCrop>>(emptyList())
     val listedCrops: StateFlow<List<ListedCrop>> = _listedCrops.asStateFlow()
 
+    private val _myListedCrops = MutableStateFlow<List<ListedCrop>>(emptyList())
+    val myListedCrops: StateFlow<List<ListedCrop>> = _myListedCrops.asStateFlow()
+
+    private val _purchaseRequests = MutableStateFlow<List<PurchaseRequest>>(emptyList())
+    val purchaseRequests: StateFlow<List<PurchaseRequest>> = _purchaseRequests.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -90,6 +97,8 @@ class MarketplaceViewModel : ViewModel() {
         initializeFoodsByCategory()
         initializeSataraTalukasAndVillages()
         loadData()
+        loadMyListedCrops()
+        loadPurchaseRequests()
     }
 
     private fun initializeSataraTalukasAndVillages() {
@@ -225,8 +234,15 @@ class MarketplaceViewModel : ViewModel() {
                                         category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
                                         sellerName = data["sellerName"] as? String,
                                         sellerContact = data["sellerContact"] as? String,
-                                        timestamp = null, // Firestore timestamp will be converted later if needed
-                                        buyerDetails = emptyList(),
+                                        timestamp = null,
+                                        buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
+                                            BuyerDetail(
+                                                name = buyer["name"] as? String ?: "",
+                                                contactInfo = buyer["contactInfo"] as? String ?: "",
+                                                address = buyer["address"] as? String ?: "",
+                                                requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0
+                                            )
+                                        } ?: emptyList(),
                                         isOwnListing = data["sellerContact"] == currentUser
                                     )
                                 } else null
@@ -272,6 +288,7 @@ class MarketplaceViewModel : ViewModel() {
                     "location" to location,
                     "category" to category.name,
                     "sellerName" to sellerName,
+                    "sellerEmail" to currentUser,
                     "sellerContact" to sellerContact,
                     "timestamp" to com.google.firebase.Timestamp.now(),
                     "buyerDetails" to emptyList<String>()
@@ -280,7 +297,7 @@ class MarketplaceViewModel : ViewModel() {
                 // Add to Firestore
                 cropsCollection.document(cropId).set(cropData).await()
                 
-                // Update local state
+                // Create the new crop object
                 val newCrop = ListedCrop(
                     id = cropId,
                     name = name,
@@ -295,9 +312,14 @@ class MarketplaceViewModel : ViewModel() {
                     isOwnListing = true
                 )
                 
-                val currentList = _listedCrops.value.toMutableList()
-                currentList.add(newCrop)
-                _listedCrops.value = currentList
+                // Update both listedCrops and myListedCrops
+                val currentListedCrops = _listedCrops.value.toMutableList()
+                currentListedCrops.add(newCrop)
+                _listedCrops.value = currentListedCrops
+                
+                val currentMyListedCrops = _myListedCrops.value.toMutableList()
+                currentMyListedCrops.add(newCrop)
+                _myListedCrops.value = currentMyListedCrops
                 
             } catch (e: Exception) {
                 _error.value = "Failed to add crop: ${e.message}"
@@ -365,37 +387,42 @@ class MarketplaceViewModel : ViewModel() {
                 val cropDoc = cropRef.get().await()
                 
                 if (cropDoc.exists()) {
-                    val currentQuantity = (cropDoc.get("quantity") as? Long)?.toInt() ?: 0
-                    val newQuantity = currentQuantity - buyerDetail.requestedQuantity
-                    
                     // Get current buyer details
                     val currentBuyerDetails = (cropDoc.get("buyerDetails") as? List<Map<String, Any>>) ?: emptyList()
                     
-                    // Create new buyer detail map
+                    // Create new buyer detail map with PENDING status
                     val newBuyerDetail = mapOf(
                         "name" to buyerDetail.name,
                         "contactInfo" to buyerDetail.contactInfo,
                         "address" to buyerDetail.address,
-                        "requestedQuantity" to buyerDetail.requestedQuantity
+                        "requestedQuantity" to buyerDetail.requestedQuantity,
+                        "status" to "PENDING"
                     )
                     
                     // Update the document
                     cropRef.update(
                         mapOf(
-                            "quantity" to newQuantity,
-                            "buyerDetails" to (currentBuyerDetails + newBuyerDetail)
+                            "buyerDetails" to (currentBuyerDetails + newBuyerDetail),
+                            "lastUpdated" to com.google.firebase.Timestamp.now()
                         )
                     ).await()
                     
-                    // Update local state
-                    val cropIndex = _listedCrops.value.indexOfFirst { it.id == cropId }
-                    if (cropIndex != -1) {
-                        val crop = _listedCrops.value[cropIndex]
-                        val updatedCrop = crop.copy(quantity = newQuantity)
-                        val updatedList = _listedCrops.value.toMutableList()
-                        updatedList[cropIndex] = updatedCrop
-                        _listedCrops.value = updatedList
-                        _selectedCrop.value = updatedCrop
+                    // Refresh the data to show immediate updates
+                    loadData()
+                    loadMyListedCrops()
+                    
+                    // Also update the selected crop if it exists
+                    _selectedCrop.value?.let { currentCrop ->
+                        if (currentCrop.id == cropId) {
+                            val updatedBuyerDetails = currentCrop.buyerDetails + BuyerDetail(
+                                name = buyerDetail.name,
+                                contactInfo = buyerDetail.contactInfo,
+                                address = buyerDetail.address,
+                                requestedQuantity = buyerDetail.requestedQuantity,
+                                status = "PENDING"
+                            )
+                            _selectedCrop.value = currentCrop.copy(buyerDetails = updatedBuyerDetails)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -442,6 +469,155 @@ class MarketplaceViewModel : ViewModel() {
                 _error.value = "Failed to refresh crops: ${e.message}"
             } finally {
                 _isRefreshing.value = false
+            }
+        }
+    }
+
+    private fun loadMyListedCrops() {
+        viewModelScope.launch {
+            try {
+                val currentUserEmail = AuthHelper.getCurrentUserEmail()
+                if (currentUserEmail != null) {
+                    val snapshot = db.collection("crops")
+                        .whereEqualTo("sellerEmail", currentUserEmail)
+                        .get()
+                        .await()
+                    
+                    val crops = snapshot.documents.mapNotNull { doc ->
+                        val data = doc.data
+                        if (data != null) {
+                            ListedCrop(
+                                id = doc.id,
+                                name = data["name"] as? String ?: "",
+                                quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
+                                rate = (data["rate"] as? Long)?.toInt() ?: 0,
+                                location = data["location"] as? String ?: "",
+                                category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
+                                sellerName = data["sellerName"] as? String,
+                                sellerContact = data["sellerContact"] as? String,
+                                timestamp = null,
+                                buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
+                                    BuyerDetail(
+                                        name = buyer["name"] as? String ?: "",
+                                        contactInfo = buyer["contactInfo"] as? String ?: "",
+                                        address = buyer["address"] as? String ?: "",
+                                        requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0
+                                    )
+                                } ?: emptyList(),
+                                isOwnListing = true
+                            )
+                        } else null
+                    }
+                    _myListedCrops.value = crops
+                }
+            } catch (e: Exception) {
+                _error.value = "Failed to load your listed crops: ${e.message}"
+            }
+        }
+    }
+    
+    private fun loadPurchaseRequests() {
+        viewModelScope.launch {
+            try {
+                val currentUserEmail = AuthHelper.getCurrentUserEmail()
+                if (currentUserEmail != null) {
+                    val snapshot = db.collection("purchase_requests")
+                        .whereEqualTo("buyerEmail", currentUserEmail)
+                        .get()
+                        .await()
+                    
+                    val requests = snapshot.documents.mapNotNull { doc ->
+                        doc.toObject(PurchaseRequest::class.java)?.copy(id = doc.id)
+                    }
+                    _purchaseRequests.value = requests
+                }
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+    fun acceptBuyerRequest(cropId: String, buyerId: String, acceptedQuantity: Int) {
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                _error.value = null
+
+                // Get the crop document
+                val cropDoc = cropsCollection.document(cropId).get().await()
+                
+                if (!cropDoc.exists()) {
+                    _error.value = "Crop not found"
+                    return@launch
+                }
+
+                val data = cropDoc.data
+                if (data == null) {
+                    _error.value = "Invalid crop data"
+                    return@launch
+                }
+
+                val currentQuantity = (data["quantity"] as? Long)?.toInt() ?: 0
+                if (currentQuantity < acceptedQuantity) {
+                    _error.value = "Not enough quantity available"
+                    return@launch
+                }
+
+                val buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>) ?: emptyList()
+                
+                // Find and update the specific buyer's request
+                val updatedBuyerDetails = buyerDetails.map { buyer ->
+                    if (buyer["contactInfo"] == buyerId) {
+                        buyer.toMutableMap().apply {
+                            put("acceptedQuantity", acceptedQuantity)
+                            put("status", "ACCEPTED")
+                            put("acceptedAt", com.google.firebase.Timestamp.now())
+                        }
+                    } else buyer
+                }
+                
+                // Calculate new quantity
+                val newQuantity = currentQuantity - acceptedQuantity
+                
+                // Update the crop document
+                cropsCollection.document(cropId)
+                    .update(
+                        mapOf(
+                            "quantity" to newQuantity,
+                            "buyerDetails" to updatedBuyerDetails,
+                            "lastUpdated" to com.google.firebase.Timestamp.now()
+                        )
+                    ).await()
+                
+                // Refresh the data
+                loadMyListedCrops()
+                loadData()
+            } catch (e: Exception) {
+                _error.value = "Failed to accept buyer request: ${e.message}"
+                e.printStackTrace()
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun deleteListedCrop(cropId: String) {
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                _error.value = null
+                
+                // Delete from Firestore
+                cropsCollection.document(cropId).delete().await()
+                
+                // Update local state
+                _listedCrops.value = _listedCrops.value.filter { it.id != cropId }
+                _myListedCrops.value = _myListedCrops.value.filter { it.id != cropId }
+                
+            } catch (e: Exception) {
+                _error.value = "Failed to delete crop: ${e.message}"
+            } finally {
+                _isLoading.value = false
             }
         }
     }

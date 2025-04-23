@@ -35,6 +35,7 @@ fun CropDetailScreen(
     var buyerName by remember { mutableStateOf(AuthHelper.getCurrentUserEmail()?.substringBefore('@') ?: "") }
     var address by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("1") }
+    var contactNumber by remember { mutableStateOf("") }
     var showSuccessDialog by remember { mutableStateOf(false) }
     
     // Validation
@@ -45,7 +46,8 @@ fun CropDetailScreen(
         false
     }
     
-    val isFormValid = buyerName.isNotBlank() && address.isNotBlank() && isQuantityValid
+    val isContactNumberValid = contactNumber.length == 10 && contactNumber.all { it.isDigit() }
+    val isFormValid = buyerName.isNotBlank() && address.isNotBlank() && isQuantityValid && isContactNumberValid
     
     Scaffold(
         topBar = {
@@ -94,6 +96,7 @@ fun CropDetailScreen(
                     DetailRow("Location", crop.location)
                     DetailRow("Category", crop.category.toString())
                     DetailRow("Seller", crop.sellerName ?: "Unknown")
+                    DetailRow("Contact", crop.sellerContact ?: "Not available")
                 }
             }
             
@@ -135,6 +138,20 @@ fun CropDetailScreen(
                         isError = !isQuantityValid && quantity.isNotBlank()
                     )
                     
+                    OutlinedTextField(
+                        value = contactNumber,
+                        onValueChange = { newValue ->
+                            // Only allow digits and limit to 10 characters
+                            if (newValue.length <= 10 && newValue.all { it.isDigit() }) {
+                                contactNumber = newValue
+                            }
+                        },
+                        label = { Text("Contact Number") },
+                        supportingText = { Text("Enter 10-digit mobile number") },
+                        modifier = Modifier.fillMaxWidth(),
+                        isError = !isContactNumberValid && contactNumber.isNotBlank()
+                    )
+                    
                     val totalAmount = try {
                         "₹${quantity.toInt() * crop.rate}"
                     } catch (e: NumberFormatException) {
@@ -152,7 +169,7 @@ fun CropDetailScreen(
                                 coroutineScope.launch {
                                     val buyerDetail = BuyerDetail(
                                         name = buyerName,
-                                        contactInfo = AuthHelper.getCurrentUserEmail() ?: "",
+                                        contactInfo = contactNumber,
                                         address = address,
                                         requestedQuantity = quantity.toInt()
                                     )

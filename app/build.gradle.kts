@@ -67,6 +67,10 @@ dependencies {
     // Material Icons Extended
     implementation("androidx.compose.material:material-icons-extended")
 
+    // Accompanist dependencies
+    implementation("com.google.accompanist:accompanist-systemuicontroller:0.32.0")
+    implementation("com.google.accompanist:accompanist-swiperefresh:0.32.0")
+
     // Coil for Image Loading
     implementation("io.coil-kt:coil-compose:2.5.0")
 
@@ -82,12 +86,6 @@ dependencies {
 
     // Add kotlinx-datetime for the LocalDateTime class
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.5.0")
-
-    // Add Accompanist SwipeRefresh
-    implementation("com.google.accompanist:accompanist-swiperefresh:0.32.0")
-
-    // Add Accompanist System UI Controller
-    implementation("com.google.accompanist:accompanist-systemuicontroller:0.32.0")
 
     // Add Google AI SDK
     implementation("com.google.ai.client.generativeai:generativeai:0.1.1")
