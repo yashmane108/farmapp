@@ -621,7 +621,7 @@ fun SellCropScreen(
                                 viewModel.addCrop(
                                     name = selectedCrop!!,
                                     quantity = quantity,
-                                    rate = currentRate.toInt(),
+                                    rate = if (useTodaysRate) 100 else customRate.toIntOrNull() ?: 0,
                                     location = "$selectedTaluka, $selectedVillage",
                                     category = selectedCategory!!,
                                     sellerName = currentUser.name,

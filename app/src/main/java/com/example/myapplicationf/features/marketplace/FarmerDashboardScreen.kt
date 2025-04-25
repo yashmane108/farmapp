@@ -22,6 +22,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.window.DialogProperties
 import com.example.myapplicationf.ui.theme.HeaderBackground
 import com.example.myapplicationf.ui.theme.HeaderIcon
@@ -32,6 +34,12 @@ import com.example.myapplicationf.features.marketplace.models.PurchaseRequest
 import com.example.myapplicationf.features.marketplace.models.BuyerDetail
 import com.google.accompanist.swiperefresh.SwipeRefresh
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.rememberAsyncImagePainter
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import java.io.File
 
 private val DarkGreen = Color(0xFF084521)
 private val LightGreen = Color(0xFF4CAF50)
@@ -84,7 +92,7 @@ fun FarmerDashboardScreen(
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Buyer") }
+                    text = { Text("Buy") }
                 )
             }
 
@@ -110,7 +118,8 @@ fun FarmerDashboardScreen(
                     )
                     1 -> BuyerTab(
                         purchaseRequests = purchaseRequests,
-                        isLoading = isLoading
+                        isLoading = isLoading,
+                        viewModel = viewModel
                     )
                 }
             }
@@ -193,7 +202,8 @@ private fun FarmerTab(
 @Composable
 private fun BuyerTab(
     purchaseRequests: List<PurchaseRequest>,
-    isLoading: Boolean
+    isLoading: Boolean,
+    viewModel: MarketplaceViewModel = viewModel()
 ) {
     if (isLoading) {
         Box(
@@ -223,9 +233,294 @@ private fun BuyerTab(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             items(purchaseRequests) { request ->
-                PurchaseRequestCard(request)
+                ExpandablePurchaseRequestCard(request, viewModel)
             }
         }
+    }
+}
+
+@Composable
+private fun ExpandablePurchaseRequestCard(
+    request: PurchaseRequest,
+    viewModel: MarketplaceViewModel
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+    var showCancelDialog by remember { mutableStateOf(false) }
+    var cancelReason by remember { mutableStateOf("") }
+    var selectedQuantity by remember { mutableStateOf(1) }
+
+    // Get the food icon path based on crop name
+    val iconFileName = "${request.cropName} icon.jpg"
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Header with crop icon, name and expand arrow
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Circular food icon with border
+                    Surface(
+                        modifier = Modifier
+                            .size(50.dp),
+                        color = Color.Transparent,
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, Color(0xFFE0E0E0))
+                    ) {
+                        Image(
+                            painter = rememberAsyncImagePainter(
+                                model = "file:///android_asset/food_img/food Icon/$iconFileName"
+                            ),
+                            contentDescription = "${request.cropName} icon",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(16.dp))
+                    
+                    Column {
+                        Text(
+                            text = request.cropName,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = Color(0xFF1B5E20)
+                        )
+                        Text(
+                            text = "Requested: ${request.quantity} kg",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF2E7D32),
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .background(
+                                    color = Color(0xFFE8F5E9),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                
+                IconButton(
+                    onClick = { isExpanded = !isExpanded }
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        tint = Color(0xFF2E7D32)
+                    )
+                }
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Status section
+                Text(
+                    text = "Status: ${request.status}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = when (request.status) {
+                        "ACCEPTED" -> MaterialTheme.colorScheme.primary
+                        "CANCELLED" -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.secondary
+                    },
+                    modifier = Modifier
+                        .background(
+                            color = when (request.status) {
+                                "ACCEPTED" -> MaterialTheme.colorScheme.primaryContainer
+                                "CANCELLED" -> MaterialTheme.colorScheme.errorContainer
+                                else -> MaterialTheme.colorScheme.secondaryContainer
+                            }.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Show accepted quantity status if accepted
+                when (request.status) {
+                    "PENDING" -> Text(
+                        text = "Waiting for farmer's acceptance",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    "ACCEPTED" -> Text(
+                        text = if (request.acceptedQuantity == request.quantity) {
+                            "Accepted: Full quantity (${request.quantity} kg)"
+                        } else {
+                            "Accepted: ${request.acceptedQuantity} kg out of ${request.quantity} kg"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    "CANCELLED" -> Text(
+                        text = "Cancelled",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Amount
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "Total Amount",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (request.status == "ACCEPTED" && request.acceptedQuantity < request.quantity) {
+                            Text(
+                                text = "Original: ₹${request.totalAmount}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                            val adjustedAmount = (request.totalAmount * request.acceptedQuantity) / request.quantity
+                            Text(
+                                text = "Final: ₹$adjustedAmount",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            Text(
+                                text = "₹${request.totalAmount}",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Seller info with location icon
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = "Seller",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = "Seller: ${request.sellerName}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Date: ${request.date}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (request.status == "PENDING") {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // Cancel Button
+                    Button(
+                        onClick = { showCancelDialog = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Cancel Request")
+                    }
+                }
+            }
+        }
+    }
+
+    // Cancel Dialog
+    if (showCancelDialog) {
+        AlertDialog(
+            onDismissRequest = { showCancelDialog = false },
+            title = {
+                Text(
+                    text = "Cancel Purchase Request",
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Select Quantity:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Slider(
+                        value = selectedQuantity.toFloat(),
+                        onValueChange = { selectedQuantity = it.toInt() },
+                        valueRange = 1f..request.quantity.toFloat(),
+                        steps = request.quantity - 1,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    Text(
+                        text = "Selected: $selectedQuantity kg",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                    OutlinedTextField(
+                        value = cancelReason,
+                        onValueChange = { cancelReason = it },
+                        label = { Text("Reason for cancellation") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.cancelPurchaseRequest(request.id, selectedQuantity, cancelReason)
+                        showCancelDialog = false
+                    },
+                    enabled = cancelReason.isNotBlank()
+                ) {
+                    Text("Done")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCancelDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -239,191 +534,239 @@ fun ListedCropCard(
     var selectedBuyer by remember { mutableStateOf<BuyerDetail?>(null) }
     var selectedQuantity by remember { mutableStateOf(0) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // Get the food icon path based on crop name
+    val iconFileName = "${crop.name} icon.jpg"
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface,
+            containerColor = Color.White,
             contentColor = MaterialTheme.colorScheme.onSurface
-        )
+        ),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Header with crop name and category
+            // Header with crop icon, name, category and expand arrow
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = crop.name,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = crop.category.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Quantity and Rate
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "Quantity",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "${crop.quantity} kg",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Column {
-                    Text(
-                        text = "Rate",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "₹${crop.rate}/kg",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Location
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = "Location",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = crop.location,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Buyers List
-            if (crop.buyerDetails.isNotEmpty()) {
-                Text(
-                    text = "Purchase Requests",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                
-                crop.buyerDetails.forEach { buyer ->
-                    Card(
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Circular food icon with border
+                    Surface(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                        )
+                            .size(50.dp),
+                        color = Color.Transparent,
+                        shape = CircleShape,
+                        border = BorderStroke(1.dp, Color(0xFFE0E0E0))
                     ) {
-                        Column(
+                        Image(
+                            painter = rememberAsyncImagePainter(
+                                model = "file:///android_asset/food_img/food Icon/$iconFileName"
+                            ),
+                            contentDescription = "${crop.name} icon",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.width(16.dp))
+                    
+                    Column {
+                        Text(
+                            text = crop.name,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = Color(0xFF1B5E20)
+                        )
+                        Text(
+                            text = crop.category.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF2E7D32),
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .background(
+                                    color = Color(0xFFE8F5E9),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = { isExpanded = !isExpanded }
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        tint = Color(0xFF2E7D32)
+                    )
+                }
+            }
+
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Quantity and Rate
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(
+                            text = "Quantity",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${crop.quantity} kg",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Rate",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "₹${crop.rate}/kg",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Location
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = "Location",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = crop.location,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Buyers List
+                if (crop.buyerDetails.isNotEmpty()) {
+                    Text(
+                        text = "Purchase Requests",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    crop.buyerDetails.forEach { buyer ->
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp)
+                                .padding(vertical = 4.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            )
                         ) {
-                            Text(
-                                text = buyer.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Requested: ${buyer.requestedQuantity} kg",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = buyer.address,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp)
                             ) {
-                                Button(
-                                    onClick = {
-                                        selectedBuyer = buyer
-                                        showQuantityDialog = true
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary
-                                    )
+                                Text(
+                                    text = buyer.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Requested: ${buyer.requestedQuantity} kg",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = buyer.address,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("Accept Request")
+                                    Button(
+                                        onClick = {
+                                            selectedBuyer = buyer
+                                            showQuantityDialog = true
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary
+                                        )
+                                    ) {
+                                        Text("Accept Request")
+                                    }
                                 }
                             }
                         }
                     }
+                } else {
+                    Text(
+                        text = "No purchase requests yet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
                 }
-            } else {
-                Text(
-                    text = "No purchase requests yet",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            // Delete Button
-            Button(
-                onClick = { showDeleteConfirmation = true },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.error
-                ),
-                modifier = Modifier.align(Alignment.End)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Delete Listing")
+                // Delete Button
+                Button(
+                    onClick = { showDeleteConfirmation = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Delete Listing")
+                }
             }
         }
     }
@@ -533,34 +876,6 @@ fun ListedCropCard(
                 }
             }
         )
-    }
-}
-
-@Composable
-private fun PurchaseRequestCard(request: PurchaseRequest) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Text(
-                text = request.cropName,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            DetailRow("Seller", request.sellerName)
-            DetailRow("Status", request.status)
-            DetailRow("Quantity", "${request.quantity} kg")
-            DetailRow("Total Amount", "₹${request.totalAmount}")
-            DetailRow("Date", request.date)
-        }
     }
 }
 

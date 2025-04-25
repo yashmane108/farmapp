@@ -14,7 +14,6 @@ data class ChatMessage(
     val isUser: Boolean,
     val timestamp: Long = System.currentTimeMillis()
 )
-
 data class ChatState(
     val messages: List<ChatMessage> = emptyList(),
     val currentMessage: String = "",

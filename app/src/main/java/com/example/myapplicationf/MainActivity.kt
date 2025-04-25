@@ -9,6 +9,10 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Agriculture
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment

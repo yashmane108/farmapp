@@ -7,6 +7,7 @@ import com.example.myapplicationf.features.marketplace.models.BuyerDetail
 import com.example.myapplicationf.features.marketplace.models.Category
 import com.example.myapplicationf.features.marketplace.models.ListedCrop
 import com.example.myapplicationf.features.marketplace.models.PurchaseRequest
+import com.example.myapplicationf.features.marketplace.models.AcceptedRequest
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -21,6 +22,7 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import java.util.Date
+import com.google.firebase.firestore.ListenerRegistration
 
 data class CropItem(
     val name: String,
@@ -39,6 +41,9 @@ data class Taluka(
 class MarketplaceViewModel : ViewModel() {
     private val db: FirebaseFirestore = Firebase.firestore
     private val cropsCollection = db.collection("crops")
+    private var cropsListener: ListenerRegistration? = null
+    private var myCropsListener: ListenerRegistration? = null
+    private var purchaseRequestsListener: ListenerRegistration? = null
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -93,12 +98,17 @@ class MarketplaceViewModel : ViewModel() {
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    // Add state for accepted requests
+    private val _acceptedRequests = MutableStateFlow<List<AcceptedRequest>>(emptyList())
+    val acceptedRequests: StateFlow<List<AcceptedRequest>> = _acceptedRequests.asStateFlow()
+
+    private var acceptedRequestsListener: ListenerRegistration? = null
+
     init {
         initializeFoodsByCategory()
         initializeSataraTalukasAndVillages()
-        loadData()
-        loadMyListedCrops()
-        loadPurchaseRequests()
+        setupRealTimeListeners()
+        setupPurchaseRequestsListener()
     }
 
     private fun initializeSataraTalukasAndVillages() {
@@ -180,9 +190,9 @@ class MarketplaceViewModel : ViewModel() {
 
     private fun initializeFoodsByCategory() {
         _foodsByCategory.value = mapOf(
-            Category.GRAINS to listOf("Wheat", "Rice", "Corn", "Millet", "Jowar", "Bajra"),
+            Category.GRAINS to listOf("Wheat", "Rice", "Corn", "Jowar"),
             Category.VEGETABLES to listOf("Tomatoes", "Potatoes"),
-            Category.FRUITS to listOf("Bananas", "Grapes", "Strawberries"),
+            Category.FRUITS to listOf("Grapes", "Strawberries"),
             Category.OILSEEDS to listOf("Soybean")
         )
     }
@@ -207,283 +217,18 @@ class MarketplaceViewModel : ViewModel() {
         return _customRate.value.toIntOrNull() ?: _selectedProduct.value?.rate ?: 0
     }
 
-    private fun loadData() {
-        viewModelScope.launch {
-            _isLoading.value = true
-            try {
+    private fun setupRealTimeListeners() {
+        // Listen for all crops
+        cropsListener = cropsCollection.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                _error.value = "Error listening to crops: ${error.message}"
+                return@addSnapshotListener
+            }
+
+            snapshot?.let { querySnapshot ->
                 val currentUser = AuthHelper.getCurrentUserEmail()
-                
-                // Listen for real-time updates to the crops collection
-                cropsCollection.addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        _error.value = "Error loading crops: ${error.message}"
-                        return@addSnapshotListener
-                    }
-
-                    if (snapshot != null) {
-                        val cropsList = snapshot.documents.mapNotNull { doc ->
-                            try {
-                                val data = doc.data
-                                if (data != null) {
-                                    ListedCrop(
-                                        id = doc.id,
-                                        name = data["name"] as? String ?: "",
-                                        quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
-                                        rate = (data["rate"] as? Long)?.toInt() ?: 0,
-                                        location = data["location"] as? String ?: "",
-                                        category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
-                                        sellerName = data["sellerName"] as? String,
-                                        sellerContact = data["sellerContact"] as? String,
-                                        timestamp = null,
-                                        buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
-                                            BuyerDetail(
-                                                name = buyer["name"] as? String ?: "",
-                                                contactInfo = buyer["contactInfo"] as? String ?: "",
-                                                address = buyer["address"] as? String ?: "",
-                                                requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0
-                                            )
-                                        } ?: emptyList(),
-                                        isOwnListing = data["sellerContact"] == currentUser
-                                    )
-                                } else null
-                            } catch (e: Exception) {
-                                _error.value = "Error parsing crop data: ${e.message}"
-                                null
-                            }
-                        }
-                        _listedCrops.value = cropsList
-                    }
-                }
-            } catch (e: Exception) {
-                _error.value = "Failed to load crops: ${e.message}"
-            } finally {
-                _isLoading.value = false
-            }
-        }
-    }
-
-    // Function to add a new crop listing
-    fun addCrop(
-        name: String,
-        quantity: Int,
-        rate: Int,
-        location: String,
-        category: Category,
-        sellerName: String,
-        sellerContact: String
-    ) {
-        viewModelScope.launch {
-            try {
-                _isLoading.value = true
-                _error.value = null
-                
-                val currentUser = AuthHelper.getCurrentUserEmail()
-                val cropId = UUID.randomUUID().toString()
-                
-                // Create crop data for Firestore
-                val cropData = mapOf(
-                    "name" to name,
-                    "quantity" to quantity,
-                    "rate" to rate,
-                    "location" to location,
-                    "category" to category.name,
-                    "sellerName" to sellerName,
-                    "sellerEmail" to currentUser,
-                    "sellerContact" to sellerContact,
-                    "timestamp" to com.google.firebase.Timestamp.now(),
-                    "buyerDetails" to emptyList<String>()
-                )
-                
-                // Add to Firestore
-                cropsCollection.document(cropId).set(cropData).await()
-                
-                // Create the new crop object
-                val newCrop = ListedCrop(
-                    id = cropId,
-                    name = name,
-                    quantity = quantity,
-                    rate = rate,
-                    location = location,
-                    sellerName = sellerName,
-                    sellerContact = sellerContact,
-                    category = category,
-                    timestamp = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
-                    buyerDetails = emptyList(),
-                    isOwnListing = true
-                )
-                
-                // Update both listedCrops and myListedCrops
-                val currentListedCrops = _listedCrops.value.toMutableList()
-                currentListedCrops.add(newCrop)
-                _listedCrops.value = currentListedCrops
-                
-                val currentMyListedCrops = _myListedCrops.value.toMutableList()
-                currentMyListedCrops.add(newCrop)
-                _myListedCrops.value = currentMyListedCrops
-                
-            } catch (e: Exception) {
-                _error.value = "Failed to add crop: ${e.message}"
-            } finally {
-                _isLoading.value = false
-            }
-        }
-    }
-
-    fun getFoodsForCategory(category: Category): List<String> {
-        return _foodsByCategory.value[category] ?: emptyList()
-    }
-
-    fun getTodaysRate(foodItem: String): Int {
-        // In a real app, this would fetch from an API or database
-        return 100
-    }
-
-    fun selectCrop(cropId: String) {
-        viewModelScope.launch {
-            try {
-                // Fetch from Firestore
-                val cropDoc = cropsCollection.document(cropId).get().await()
-                
-                if (cropDoc.exists()) {
-                    val data = cropDoc.data
-                    if (data != null) {
-                        val currentUser = AuthHelper.getCurrentUserEmail()
-                        
-                        val crop = ListedCrop(
-                            id = cropDoc.id,
-                            name = data["name"] as? String ?: "",
-                            quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
-                            rate = (data["rate"] as? Long)?.toInt() ?: 0,
-                            location = data["location"] as? String ?: "",
-                            category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
-                            sellerName = data["sellerName"] as? String,
-                            sellerContact = data["sellerContact"] as? String,
-                            timestamp = null,
-                            buyerDetails = emptyList(),
-                            isOwnListing = data["sellerContact"] == currentUser
-                        )
-                        
-                        _selectedCrop.value = crop
-                    }
-                }
-            } catch (e: Exception) {
-                _error.value = "Failed to select crop: ${e.message}"
-            }
-        }
-    }
-    
-    fun clearSelectedCrop() {
-        _selectedCrop.value = null
-    }
-    
-    fun sendPurchaseRequest(cropId: String, buyerDetail: BuyerDetail) {
-        viewModelScope.launch {
-            try {
-                _isLoading.value = true
-                _error.value = null
-                
-                // Find the crop in Firestore
-                val cropRef = cropsCollection.document(cropId)
-                val cropDoc = cropRef.get().await()
-                
-                if (cropDoc.exists()) {
-                    // Get current buyer details
-                    val currentBuyerDetails = (cropDoc.get("buyerDetails") as? List<Map<String, Any>>) ?: emptyList()
-                    
-                    // Create new buyer detail map with PENDING status
-                    val newBuyerDetail = mapOf(
-                        "name" to buyerDetail.name,
-                        "contactInfo" to buyerDetail.contactInfo,
-                        "address" to buyerDetail.address,
-                        "requestedQuantity" to buyerDetail.requestedQuantity,
-                        "status" to "PENDING"
-                    )
-                    
-                    // Update the document
-                    cropRef.update(
-                        mapOf(
-                            "buyerDetails" to (currentBuyerDetails + newBuyerDetail),
-                            "lastUpdated" to com.google.firebase.Timestamp.now()
-                        )
-                    ).await()
-                    
-                    // Refresh the data to show immediate updates
-                    loadData()
-                    loadMyListedCrops()
-                    
-                    // Also update the selected crop if it exists
-                    _selectedCrop.value?.let { currentCrop ->
-                        if (currentCrop.id == cropId) {
-                            val updatedBuyerDetails = currentCrop.buyerDetails + BuyerDetail(
-                                name = buyerDetail.name,
-                                contactInfo = buyerDetail.contactInfo,
-                                address = buyerDetail.address,
-                                requestedQuantity = buyerDetail.requestedQuantity,
-                                status = "PENDING"
-                            )
-                            _selectedCrop.value = currentCrop.copy(buyerDetails = updatedBuyerDetails)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                _error.value = "Failed to send purchase request: ${e.message}"
-            } finally {
-                _isLoading.value = false
-            }
-        }
-    }
-
-    fun refresh() {
-        viewModelScope.launch {
-            _isRefreshing.value = true
-            try {
-                // Fetch latest data from Firestore
-                val snapshot = cropsCollection.get().await()
-                val currentUser = AuthHelper.getCurrentUserEmail()
-                
-                val cropsList = snapshot.documents.mapNotNull { doc ->
+                val cropsList = querySnapshot.documents.mapNotNull { doc ->
                     try {
-                        val data = doc.data
-                        if (data != null) {
-                            ListedCrop(
-                                id = doc.id,
-                                name = data["name"] as? String ?: "",
-                                quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
-                                rate = (data["rate"] as? Long)?.toInt() ?: 0,
-                                location = data["location"] as? String ?: "",
-                                category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
-                                sellerName = data["sellerName"] as? String,
-                                sellerContact = data["sellerContact"] as? String,
-                                timestamp = null,
-                                buyerDetails = emptyList(),
-                                isOwnListing = data["sellerContact"] == currentUser
-                            )
-                        } else null
-                    } catch (e: Exception) {
-                        _error.value = "Error parsing crop data: ${e.message}"
-                        null
-                    }
-                }
-                _listedCrops.value = cropsList
-            } catch (e: Exception) {
-                _error.value = "Failed to refresh crops: ${e.message}"
-            } finally {
-                _isRefreshing.value = false
-            }
-        }
-    }
-
-    private fun loadMyListedCrops() {
-        viewModelScope.launch {
-            try {
-                val currentUserEmail = AuthHelper.getCurrentUserEmail()
-                if (currentUserEmail != null) {
-                    val snapshot = db.collection("crops")
-                        .whereEqualTo("sellerEmail", currentUserEmail)
-                        .get()
-                        .await()
-                    
-                    val crops = snapshot.documents.mapNotNull { doc ->
                         val data = doc.data
                         if (data != null) {
                             ListedCrop(
@@ -501,119 +246,409 @@ class MarketplaceViewModel : ViewModel() {
                                         name = buyer["name"] as? String ?: "",
                                         contactInfo = buyer["contactInfo"] as? String ?: "",
                                         address = buyer["address"] as? String ?: "",
-                                        requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0
+                                        requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0,
+                                        status = buyer["status"] as? String ?: "PENDING"
                                     )
                                 } ?: emptyList(),
-                                isOwnListing = true
+                                isOwnListing = data["sellerEmail"] == currentUser
                             )
                         } else null
+                    } catch (e: Exception) {
+                        _error.value = "Error parsing crop data: ${e.message}"
+                        null
                     }
-                    _myListedCrops.value = crops
                 }
-            } catch (e: Exception) {
-                _error.value = "Failed to load your listed crops: ${e.message}"
+                _listedCrops.value = cropsList
             }
         }
+
+        // Listen for user's own crops
+        val currentUserEmail = AuthHelper.getCurrentUserEmail()
+        if (currentUserEmail != null) {
+            myCropsListener = cropsCollection
+                .whereEqualTo("sellerEmail", currentUserEmail)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        _error.value = "Error listening to your crops: ${error.message}"
+                        return@addSnapshotListener
+                    }
+
+                    snapshot?.let { querySnapshot ->
+                        val crops = querySnapshot.documents.mapNotNull { doc ->
+                            val data = doc.data
+                            if (data != null) {
+                                ListedCrop(
+                                    id = doc.id,
+                                    name = data["name"] as? String ?: "",
+                                    quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
+                                    rate = (data["rate"] as? Long)?.toInt() ?: 0,
+                                    location = data["location"] as? String ?: "",
+                                    category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
+                                    sellerName = data["sellerName"] as? String,
+                                    sellerContact = data["sellerContact"] as? String,
+                                    timestamp = null,
+                                    buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
+                                        BuyerDetail(
+                                            name = buyer["name"] as? String ?: "",
+                                            contactInfo = buyer["contactInfo"] as? String ?: "",
+                                            address = buyer["address"] as? String ?: "",
+                                            requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0,
+                                            status = buyer["status"] as? String ?: "PENDING"
+                                        )
+                                    } ?: emptyList(),
+                                    isOwnListing = true
+                                )
+                            } else null
+                        }
+                        _myListedCrops.value = crops
+                    }
+                }
+        }
+
+        // Listen for purchase requests
+        setupPurchaseRequestsListener()
     }
-    
-    private fun loadPurchaseRequests() {
+
+    private fun setupPurchaseRequestsListener() {
+        val currentUserEmail = AuthHelper.getCurrentUserEmail()
+        if (currentUserEmail != null) {
+            purchaseRequestsListener?.remove() // Remove existing listener if any
+            
+            purchaseRequestsListener = db.collection("purchase_requests")
+                .whereEqualTo("buyerEmail", currentUserEmail)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        _error.value = "Error listening to purchase requests: ${error.message}"
+                        return@addSnapshotListener
+                    }
+
+                    snapshot?.let { querySnapshot ->
+                        val requests = querySnapshot.documents.mapNotNull { doc ->
+                            try {
+                                val data = doc.data
+                                if (data != null) {
+                                    data["id"] = doc.id // Add document ID to the data map
+                                    println("Processing purchase request - ID: ${doc.id}")
+                                    println("Raw data from Firestore: $data")
+                                    println("AcceptedQuantity in raw data: ${data["acceptedQuantity"]}")
+                                    
+                                    val request = PurchaseRequest.fromMap(data)
+                                    println("Parsed request details:")
+                                    println("- Status: ${request.status}")
+                                    println("- Quantity: ${request.quantity}")
+                                    println("- Accepted Quantity: ${request.acceptedQuantity}")
+                                    println("- Total Amount: ${request.totalAmount}")
+                                    println("- Accepted At: ${request.acceptedAt}")
+                                    request
+                                } else null
+                            } catch (e: Exception) {
+                                println("Error converting purchase request: ${e.message}")
+                                e.printStackTrace()
+                                null
+                            }
+                        }.sortedByDescending { it.createdAt?.toDate() }
+                        
+                        println("Total purchase requests loaded: ${requests.size}")
+                        _purchaseRequests.value = requests
+                    }
+                }
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // Clean up listeners
+        cropsListener?.remove()
+        myCropsListener?.remove()
+        purchaseRequestsListener?.remove()
+        acceptedRequestsListener?.remove()
+    }
+
+    fun selectCrop(cropId: String) {
         viewModelScope.launch {
             try {
-                val currentUserEmail = AuthHelper.getCurrentUserEmail()
-                if (currentUserEmail != null) {
-                    val snapshot = db.collection("purchase_requests")
-                        .whereEqualTo("buyerEmail", currentUserEmail)
-                        .get()
-                        .await()
-                    
-                    val requests = snapshot.documents.mapNotNull { doc ->
-                        doc.toObject(PurchaseRequest::class.java)?.copy(id = doc.id)
+                // Find the crop in the current listings
+                val crop = _listedCrops.value.find { it.id == cropId }
+                if (crop != null) {
+                    _selectedCrop.value = crop
+                    return@launch
+                }
+
+                // If not found in current listings, try to fetch from Firestore
+                val cropDoc = cropsCollection.document(cropId).get().await()
+                
+                if (cropDoc.exists()) {
+                    val data = cropDoc.data
+                    if (data != null) {
+                        val currentUser = AuthHelper.getCurrentUserEmail()
+                        
+                        val selectedCrop = ListedCrop(
+                            id = cropDoc.id,
+                            name = data["name"] as? String ?: "",
+                            quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
+                            rate = (data["rate"] as? Long)?.toInt() ?: 0,
+                            location = data["location"] as? String ?: "",
+                            category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
+                            sellerName = data["sellerName"] as? String,
+                            sellerContact = data["sellerContact"] as? String,
+                            timestamp = null,
+                            buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
+                                BuyerDetail(
+                                    name = buyer["name"] as? String ?: "",
+                                    contactInfo = buyer["contactInfo"] as? String ?: "",
+                                    address = buyer["address"] as? String ?: "",
+                                    requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0,
+                                    status = buyer["status"] as? String ?: "PENDING"
+                                )
+                            } ?: emptyList(),
+                            isOwnListing = data["sellerEmail"] == currentUser
+                        )
+                        
+                        _selectedCrop.value = selectedCrop
                     }
-                    _purchaseRequests.value = requests
                 }
             } catch (e: Exception) {
-                // Handle error
+                _error.value = "Failed to select crop: ${e.message}"
             }
         }
     }
 
-    fun acceptBuyerRequest(cropId: String, buyerId: String, acceptedQuantity: Int) {
+    fun clearSelectedCrop() {
+        _selectedCrop.value = null
+    }
+
+    fun sendPurchaseRequest(cropId: String, buyerDetail: BuyerDetail) {
         viewModelScope.launch {
             try {
                 _isLoading.value = true
                 _error.value = null
 
-                // Get the crop document
-                val cropDoc = cropsCollection.document(cropId).get().await()
-                
-                if (!cropDoc.exists()) {
-                    _error.value = "Crop not found"
+                val currentUserEmail = AuthHelper.getCurrentUserEmail()
+                if (currentUserEmail == null) {
+                    _error.value = "Please login to make a purchase request"
                     return@launch
                 }
 
-                val data = cropDoc.data
-                if (data == null) {
-                    _error.value = "Invalid crop data"
-                    return@launch
-                }
-
-                val currentQuantity = (data["quantity"] as? Long)?.toInt() ?: 0
-                if (currentQuantity < acceptedQuantity) {
-                    _error.value = "Not enough quantity available"
-                    return@launch
-                }
-
-                val buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>) ?: emptyList()
+                // Find the crop in Firestore
+                val cropRef = cropsCollection.document(cropId)
+                val cropDoc = cropRef.get().await()
                 
-                // Find and update the specific buyer's request
-                val updatedBuyerDetails = buyerDetails.map { buyer ->
-                    if (buyer["contactInfo"] == buyerId) {
-                        buyer.toMutableMap().apply {
-                            put("acceptedQuantity", acceptedQuantity)
-                            put("status", "ACCEPTED")
-                            put("acceptedAt", com.google.firebase.Timestamp.now())
-                        }
-                    } else buyer
-                }
-                
-                // Calculate new quantity
-                val newQuantity = currentQuantity - acceptedQuantity
-                
-                // Update the crop document
-                cropsCollection.document(cropId)
-                    .update(
+                if (cropDoc.exists()) {
+                    // Get current buyer details
+                    val currentBuyerDetails = (cropDoc.get("buyerDetails") as? List<Map<String, Any>>) ?: emptyList()
+                    
+                    // Create new buyer detail map with PENDING status
+                    val newBuyerDetail = mapOf(
+                        "name" to buyerDetail.name,
+                        "contactInfo" to buyerDetail.contactInfo,
+                        "address" to buyerDetail.address,
+                        "requestedQuantity" to buyerDetail.requestedQuantity,
+                        "status" to "PENDING",
+                        "acceptedQuantity" to 0
+                    )
+                    
+                    // Update the document
+                    cropRef.update(
                         mapOf(
-                            "quantity" to newQuantity,
-                            "buyerDetails" to updatedBuyerDetails,
+                            "buyerDetails" to (currentBuyerDetails + newBuyerDetail),
                             "lastUpdated" to com.google.firebase.Timestamp.now()
                         )
                     ).await()
-                
-                // Refresh the data
-                loadMyListedCrops()
-                loadData()
+
+                    // Create a new purchase request document
+                    val rate = cropDoc.getLong("rate") ?: 0L
+                    val purchaseRequest = hashMapOf(
+                        "cropId" to cropId,
+                        "cropName" to (cropDoc.get("name") as? String ?: ""),
+                        "sellerName" to (cropDoc.get("sellerName") as? String ?: ""),
+                        "buyerEmail" to currentUserEmail,
+                        "buyerName" to buyerDetail.name,
+                        "status" to "PENDING",
+                        "quantity" to buyerDetail.requestedQuantity,
+                        "acceptedQuantity" to 0,
+                        "totalAmount" to (buyerDetail.requestedQuantity * rate),
+                        "date" to com.google.firebase.Timestamp.now().toDate().toString(),
+                        "createdAt" to com.google.firebase.Timestamp.now()
+                    )
+
+                    // Add the purchase request to Firestore
+                    db.collection("purchase_requests").add(purchaseRequest).await()
+
+                    // Also update the selected crop if it exists
+                    _selectedCrop.value?.let { currentCrop ->
+                        if (currentCrop.id == cropId) {
+                            val updatedBuyerDetails = currentCrop.buyerDetails + BuyerDetail(
+                                name = buyerDetail.name,
+                                contactInfo = buyerDetail.contactInfo,
+                                address = buyerDetail.address,
+                                requestedQuantity = buyerDetail.requestedQuantity,
+                                status = "PENDING"
+                            )
+                            _selectedCrop.value = currentCrop.copy(buyerDetails = updatedBuyerDetails)
+                        }
+                    }
+
+                    // Refresh the data
+                    refresh()
+                }
             } catch (e: Exception) {
-                _error.value = "Failed to accept buyer request: ${e.message}"
-                e.printStackTrace()
+                _error.value = "Failed to send purchase request: ${e.message}"
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    fun deleteListedCrop(cropId: String) {
+    fun refresh() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                // Refresh all data
+                setupRealTimeListeners()
+            } catch (e: Exception) {
+                _error.value = "Failed to refresh data: ${e.message}"
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun acceptBuyerRequest(cropId: String, requestId: String, acceptedQuantity: Int) {
         viewModelScope.launch {
             try {
-                _isLoading.value = true
-                _error.value = null
-                
-                // Delete from Firestore
+                val db = Firebase.firestore
+                val cropRef = db.collection("crops").document(cropId)
+                val requestRef = db.collection("purchase_requests").document(requestId)
+
+                db.runTransaction { transaction ->
+                    val cropDoc = transaction.get(cropRef)
+                    val requestDoc = transaction.get(requestRef)
+
+                    if (!cropDoc.exists() || !requestDoc.exists()) {
+                        throw Exception("Crop or request document not found")
+                    }
+
+                    val cropData = cropDoc.data
+                    val requestData = requestDoc.data
+                    
+                    if (cropData == null || requestData == null) {
+                        throw Exception("Invalid crop or request data")
+                    }
+
+                    val availableQuantity = (cropData["quantity"] as? Number)?.toInt() ?: 0
+                    if (acceptedQuantity > availableQuantity) {
+                        throw Exception("Accepted quantity exceeds available quantity")
+                    }
+
+                    // Update crop document
+                    val newQuantity = availableQuantity - acceptedQuantity
+                    transaction.update(cropRef, "quantity", newQuantity)
+
+                    // Update purchase request
+                    val rate = (requestData["rate"] as? Number)?.toInt() ?: 0
+                    val totalAmount = acceptedQuantity * rate.toDouble()
+                    val updates = mapOf(
+                        "acceptedQuantity" to acceptedQuantity,
+                        "totalAmount" to totalAmount,
+                        "status" to "ACCEPTED",
+                        "acceptedAt" to com.google.firebase.Timestamp.now()
+                    )
+                    transaction.update(requestRef, updates)
+
+                    // Create accepted request document
+                    val acceptedRequestData = mapOf(
+                        "cropId" to cropId,
+                        "cropName" to (cropData["name"] as? String ?: ""),
+                        "buyerEmail" to (requestData["buyerEmail"] as? String ?: ""),
+                        "buyerName" to (requestData["buyerName"] as? String ?: ""),
+                        "sellerName" to (cropData["sellerName"] as? String ?: ""),
+                        "requestedQuantity" to (requestData["quantity"] as? Int ?: 0),
+                        "acceptedQuantity" to acceptedQuantity,
+                        "rate" to rate,
+                        "totalAmount" to totalAmount,
+                        "acceptedAt" to com.google.firebase.Timestamp.now(),
+                        "status" to "ACCEPTED"
+                    )
+                    
+                    val acceptedRequestRef = db.collection("accepted_requests").document()
+                    transaction.set(acceptedRequestRef, acceptedRequestData)
+                }
+            } catch (e: Exception) {
+                println("Error accepting buyer request: ${e.message}")
+                throw e
+            }
+        }
+    }
+
+    private fun setupAcceptedRequestsListener() {
+        val currentUserEmail = AuthHelper.getCurrentUserEmail()
+        if (currentUserEmail != null) {
+            acceptedRequestsListener?.remove()
+
+            acceptedRequestsListener = db.collection("accepted_requests")
+                .whereEqualTo("buyerEmail", currentUserEmail)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        _error.value = "Error listening to accepted requests: ${error.message}"
+                        return@addSnapshotListener
+                    }
+
+                    snapshot?.let { querySnapshot ->
+                        val requests = querySnapshot.documents.mapNotNull { doc ->
+                            try {
+                                val data = doc.data
+                                if (data != null) {
+                                    AcceptedRequest(
+                                        id = doc.id,
+                                        cropId = data["cropId"] as? String ?: "",
+                                        cropName = data["cropName"] as? String ?: "",
+                                        buyerEmail = data["buyerEmail"] as? String ?: "",
+                                        buyerName = data["buyerName"] as? String ?: "",
+                                        sellerName = data["sellerName"] as? String ?: "",
+                                        requestedQuantity = (data["requestedQuantity"] as? Long)?.toInt() ?: 0,
+                                        acceptedQuantity = (data["acceptedQuantity"] as? Long)?.toInt() ?: 0,
+                                        rate = (data["rate"] as? Long)?.toInt() ?: 0,
+                                        totalAmount = when (val amount = data["totalAmount"]) {
+                                            is Long -> amount.toDouble()
+                                            is Double -> amount
+                                            else -> 0.0
+                                        },
+                                        acceptedAt = data["acceptedAt"] as? com.google.firebase.Timestamp,
+                                        status = data["status"] as? String ?: "ACCEPTED"
+                                    )
+                                } else null
+                            } catch (e: Exception) {
+                                println("Error converting accepted request: ${e.message}")
+                                e.printStackTrace()
+                                null
+                            }
+                        }.sortedByDescending { it.acceptedAt?.toDate() }
+
+                        _acceptedRequests.value = requests
+                    }
+                }
+        }
+    }
+
+    fun deleteListedCrop(cropId: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                // Delete the crop document
                 cropsCollection.document(cropId).delete().await()
-                
-                // Update local state
-                _listedCrops.value = _listedCrops.value.filter { it.id != cropId }
-                _myListedCrops.value = _myListedCrops.value.filter { it.id != cropId }
-                
+
+                // Delete any associated purchase requests
+                val purchaseRequests = db.collection("purchase_requests")
+                    .whereEqualTo("cropId", cropId)
+                    .get()
+                    .await()
+
+                for (doc in purchaseRequests.documents) {
+                    doc.reference.delete().await()
+                }
+
+                // Refresh the data
+                refresh()
             } catch (e: Exception) {
                 _error.value = "Failed to delete crop: ${e.message}"
             } finally {
@@ -622,9 +657,114 @@ class MarketplaceViewModel : ViewModel() {
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        // Clean up resources if needed
+    fun getTodaysRate(cropName: String): Int {
+        // This is a placeholder implementation
+        // In a real app, you would fetch this from an API or database
+        return when (cropName.lowercase()) {
+            "wheat" -> 2500
+            "rice" -> 3000
+            "corn" -> 2000
+            "millet" -> 3500
+            "jowar" -> 2800
+            "bajra" -> 2700
+            "tomatoes" -> 50
+            "potatoes" -> 30
+            "bananas" -> 40
+            "grapes" -> 100
+            "strawberries" -> 200
+            "soybean" -> 4500
+            else -> 0
+        }
+    }
+
+    fun addCrop(
+        name: String,
+        quantity: Int,
+        rate: Int,
+        location: String,
+        category: Category,
+        sellerName: String,
+        sellerContact: String
+    ) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val currentUser = AuthHelper.getCurrentUserEmail()
+                
+                val cropData = hashMapOf(
+                    "name" to name,
+                    "quantity" to quantity,
+                    "rate" to rate,
+                    "location" to location,
+                    "category" to category.name,
+                    "sellerName" to sellerName,
+                    "sellerContact" to sellerContact,
+                    "sellerEmail" to currentUser,
+                    "status" to "AVAILABLE",
+                    "timestamp" to com.google.firebase.Timestamp.now(),
+                    "buyerDetails" to emptyList<Map<String, Any>>()
+                )
+
+                cropsCollection.add(cropData).await()
+                refresh() // Refresh the data after adding
+            } catch (e: Exception) {
+                _error.value = "Failed to add crop: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun cancelPurchaseRequest(requestId: String, quantity: Int, reason: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                // Get the purchase request document
+                val purchaseRequestRef = db.collection("purchase_requests").document(requestId)
+                val purchaseRequest = purchaseRequestRef.get().await()
+
+                if (purchaseRequest.exists()) {
+                    // Update the purchase request status
+                    purchaseRequestRef.update(
+                        mapOf(
+                            "status" to "CANCELLED",
+                            "cancelReason" to reason,
+                            "cancelledQuantity" to quantity,
+                            "cancelledAt" to com.google.firebase.Timestamp.now()
+                        )
+                    ).await()
+
+                    // Get the crop ID from the purchase request
+                    val cropId = purchaseRequest.getString("cropId")
+                    if (cropId != null) {
+                        // Get the crop document
+                        val cropRef = cropsCollection.document(cropId)
+                        val cropDoc = cropRef.get().await()
+
+                        if (cropDoc.exists()) {
+                            // Get current buyer details
+                            val currentBuyerDetails = cropDoc.get("buyerDetails") as? List<Map<String, Any>> ?: emptyList()
+                            val buyerEmail = purchaseRequest.getString("buyerEmail")
+
+                            // Remove this buyer's request from the buyer details
+                            val updatedBuyerDetails = currentBuyerDetails.filter { 
+                                it["contactInfo"] != buyerEmail 
+                            }
+
+                            // Update the crop document
+                            cropRef.update("buyerDetails", updatedBuyerDetails).await()
+                        }
+                    }
+
+                    // Refresh the data
+                    refresh()
+                }
+            } catch (e: Exception) {
+                _error.value = "Failed to cancel purchase request: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
     }
 }
 

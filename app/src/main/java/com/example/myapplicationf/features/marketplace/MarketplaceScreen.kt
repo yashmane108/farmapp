@@ -201,9 +201,6 @@ fun CropListingCard(
     crop: ListedCrop,
     onClick: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val hasBuyerDetails = crop.buyerDetails.isNotEmpty()
-
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -220,28 +217,40 @@ fun CropListingCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = crop.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = crop.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Black,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        
+                        if (crop.isOwnListing) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFE8F5E9),
+                                border = BorderStroke(1.dp, Color(0xFF81C784))
+                            ) {
+                                Text(
+                                    text = "Own",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF2E7D32),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = "Location: ${crop.location}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.Gray
                     )
-                }
-                
-                if (hasBuyerDetails) {
-                    IconButton(onClick = { expanded = !expanded }) {
-                        Icon(
-                            imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = if (expanded) "Show less" else "Show more"
-                        )
-                    }
                 }
             }
             
@@ -262,40 +271,6 @@ fun CropListingCard(
                     text = "Qty: ${crop.quantity} kg",
                     style = MaterialTheme.typography.bodyMedium
                 )
-            }
-            
-            if (expanded && hasBuyerDetails) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Divider()
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Text(
-                    text = "Buyer Details",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                
-                crop.buyerDetails.forEach { buyer ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Column {
-                        Text(
-                            text = "Name: ${buyer.name}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = "Contact: ${buyer.contactInfo}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = "Address: ${buyer.address}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = "Requested Quantity: ${buyer.requestedQuantity} kg",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
             }
         }
     }
