@@ -8,6 +8,8 @@ import com.example.myapplicationf.features.marketplace.models.Category
 import com.example.myapplicationf.features.marketplace.models.ListedCrop
 import com.example.myapplicationf.features.marketplace.models.PurchaseRequest
 import com.example.myapplicationf.features.marketplace.models.AcceptedRequest
+import com.example.myapplicationf.features.marketplace.api.AgriPriceService
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
@@ -23,6 +25,11 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import java.util.Date
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.ktx.functions
+import com.google.firebase.firestore.Query
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.ktx.auth
 
 data class CropItem(
     val name: String,
@@ -40,6 +47,8 @@ data class Taluka(
 
 class MarketplaceViewModel : ViewModel() {
     private val db: FirebaseFirestore = Firebase.firestore
+    private val functions: FirebaseFunctions = Firebase.functions
+    private val auth: FirebaseAuth = Firebase.auth
     private val cropsCollection = db.collection("crops")
     private var cropsListener: ListenerRegistration? = null
     private var myCropsListener: ListenerRegistration? = null
@@ -54,8 +63,8 @@ class MarketplaceViewModel : ViewModel() {
     private val _selectedProduct = MutableStateFlow<ListedCrop?>(null)
     val selectedProduct: StateFlow<ListedCrop?> = _selectedProduct.asStateFlow()
 
-    private val _crops = MutableStateFlow<List<CropItem>>(emptyList())
-    val crops: StateFlow<List<CropItem>> = _crops.asStateFlow()
+    private val _crops = MutableStateFlow<List<ListedCrop>>(emptyList())
+    val crops: StateFlow<List<ListedCrop>> = _crops.asStateFlow()
 
     private val _foodsByCategory = MutableStateFlow<Map<Category, List<String>>>(emptyMap())
     val foodsByCategory: StateFlow<Map<Category, List<String>>> = _foodsByCategory.asStateFlow()
@@ -104,11 +113,69 @@ class MarketplaceViewModel : ViewModel() {
 
     private var acceptedRequestsListener: ListenerRegistration? = null
 
+    // State for seller's purchase requests
+    private val _sellerPurchaseRequests = MutableStateFlow<List<PurchaseRequest>>(emptyList())
+    val sellerPurchaseRequests: StateFlow<List<PurchaseRequest>> = _sellerPurchaseRequests.asStateFlow()
+
+    // Add these properties at the top of the MarketplaceViewModel class
+    private val _todaysRate = MutableStateFlow<Double?>(null)
+    val todaysRate: StateFlow<Double?> = _todaysRate.asStateFlow()
+
+    private val _isLoadingPrice = MutableStateFlow(false)
+    val isLoadingPrice: StateFlow<Boolean> = _isLoadingPrice.asStateFlow()
+
+    private fun setupSellerPurchaseRequestsListener() {
+        viewModelScope.launch {
+            try {
+                println("Debug: Setting up seller purchase requests listener")
+                val currentUser = auth.currentUser
+                if (currentUser == null) {
+                    println("Debug: No authenticated user found")
+                    _error.value = "User not authenticated"
+                    return@launch
+                }
+
+                // Listen for purchase requests where user is the seller
+                db.collection("purchase_requests")
+                    .whereEqualTo("sellerEmail", currentUser.email)
+                    .addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            println("Debug: Error listening to seller purchase requests: ${error.message}")
+                            _error.value = "Error fetching seller purchase requests: ${error.message}"
+                            return@addSnapshotListener
+                        }
+
+                        println("Debug: Received seller purchase requests snapshot. Documents count: ${snapshot?.documents?.size ?: 0}")
+                        
+                        val requests = snapshot?.documents?.mapNotNull { doc ->
+                            try {
+                                println("Debug: Processing seller purchase request document: ${doc.id}")
+                                println("Debug: Document data: ${doc.data}")
+                                PurchaseRequest.fromMap(doc.id, doc.data ?: emptyMap())
+                            } catch (e: Exception) {
+                                println("Debug: Error parsing seller purchase request: ${e.message}")
+                                _error.value = "Error parsing seller purchase request: ${e.message}"
+                                null
+                            }
+                        } ?: emptyList()
+                        
+                        println("Debug: Processed ${requests.size} valid seller purchase requests")
+                        _sellerPurchaseRequests.value = requests
+                    }
+            } catch (e: Exception) {
+                println("Debug: Error in setupSellerPurchaseRequestsListener: ${e.message}")
+                e.printStackTrace()
+                _error.value = "Error setting up seller purchase requests listener: ${e.message}"
+            }
+        }
+    }
+
     init {
         initializeFoodsByCategory()
         initializeSataraTalukasAndVillages()
         setupRealTimeListeners()
         setupPurchaseRequestsListener()
+        setupSellerPurchaseRequestsListener()
     }
 
     private fun initializeSataraTalukasAndVillages() {
@@ -135,15 +202,15 @@ class MarketplaceViewModel : ViewModel() {
 
             )),
             Taluka("Mahabaleshwar", listOf(
-                "Achali", "Adhal", "Ahire", "Akalpe", "Ambral", "Amshi", "Araw", "Avakali", "Awalan", "Bhekavali", "Bhilar", "Bhose", "Birmāni", "Birwadi", "Chakdev", "Chaturbet", "Chikhali", "Dabhe Dabhekar", "Dabhe Mohan", "Dandeghar", "Danvali", "Dare", "Dare Tamb", "Devali", "Devasare", "Dhangarwadi", "Dhardev", "Dhawali", "Dodani", "Dudhgaon", "Dudhoshi", "Gadhavali", "Gavadhoshi", "Ghavari", "Ghonaspur", "Godavali", "Gogave", "Goroshi", "Gureghar", "Harchandi", "Haroshi", "Hatlot", "Jaoli", "Kalamgaon", "Kalamgaon Kalamkar", "Kandat", "Kasrud", "Kaswand", "Khambil Chorge", "Khambil Pokale", "Kharoshi", "Khengar", "Kotroshi", "Kshetra Mahabaleshwar", "Kumbharoshi", "Kumthe", "Kuroshi", "Lakhwad", "Lamaj", "Machutar", "Majarewadi", "Malusar", "Manghar", "Met Taliye", "Metgutad", "Mhalunge", "Moleshwar", "Morni", "Nakinda", "Navali", "Nivali", "Pali T. Ategaon", "Pangari", "Parpar", "Parsond", "Parut", "Parwat T. Wagawale", "Petpar", "Pimpri T. Tamb", "Rajpuri", "Rameghar", "Ran Adva Gaund", "Renoshi", "Rule", "Saloshi", "Shindi", "Shindola", "Shiravali", "Shirnar", "Sonat", "Soundari", "Taighat", "Taldev", "Tapola", "Tekavali", "Uchat", "Umbari", "Valawan", "Vanavli T. Ategaon", "Vanavli T. Solasi", "Varsoli Dev", "Varsoli Koli", "Velapur", "Vengale", "Vivar", "Walne", "Yerandal", "Yerne Bk", "Yerne Kh", "Zadani", "Zanzwad"
+                "Achali", "Adhal", "Ahire", "Akalpe", "Ambral", "Amshi", "Araw", "Avakali", "Awalan", "Bhekavali", "Bhilar", "Bhose", "Birmāni", "Birwadi", "Chakdev", "Chaturbet", "Chikhali", "Dabhe Dabhekar", "Dabhe Mohan", "Dandeghar", "Danvali", "Dare", "Dare Tamb", "Devali", "Devasare", "Dhangarwadi", "Dhardev", "Dhavali", "Dodani", "Dudhgaon", "Dudhoshi", "Gadhavali", "Gavadhoshi", "Ghavari", "Ghonaspur", "Godavali", "Gogave", "Goroshi", "Gureghar", "Harchandi", "Haroshi", "Hatlot", "Jaoli", "Kalamgaon", "Kalamgaon Kalamkar", "Kandat", "Kasrud", "Kaswand", "Khambil Chorge", "Khambil Pokale", "Kharoshi", "Khengar", "Kotroshi", "Kshetra Mahabaleshwar", "Kumbharoshi", "Kumthe", "Kuroshi", "Lakhwad", "Lamaj", "Machutar", "Majarewadi", "Malusar", "Manghar", "Met Taliye", "Metgutad", "Mhalunge", "Moleshwar", "Morni", "Nakinda", "Navali", "Nivali", "Pali T. Ategaon", "Pangari", "Parpar", "Parsond", "Parwat T. Wagawale", "Petpar", "Pimpri T. Tamb", "Rajapur", "Rameghar", "Ran Adva Gaund", "Renoshi", "Rule", "Saloshi", "Shindi", "Shindola", "Shiravali", "Shirnar", "Sonat", "Soundari", "Taighat", "Taldev", "Tapola", "Tekavali", "Uchat", "Umbari", "Valawan", "Vanavli T. Ategaon", "Vanavli T. Solasi", "Varsoli Dev", "Varsoli Koli", "Velapur", "Vengale", "Vivar", "Walne", "Yerandal", "Yerne Bk", "Yerne Kh", "Zadani", "Zanzwad"
 
             )),
             Taluka("Man", listOf(
-                "Agaswadi", "Andhali", "Anubhulewadi", "Bangarwadi", "Bhalavadi", "Bhandavali", "Bhatki", "Bidal", "Bijavadi", "Bodake", "Bothe", "Chillarwadi", "Dahivadi", "Danavalewadi", "Dangirewadi", "Dangirewadi", "Devapur", "Dhakani", "Dhamani", "Dhuldev", "Didwaghwadi (Divad)", "Divad", "Divadi (Mahimangad)", "Dorgewadi (Naravane)", "Gadewadi", "Gangoti", "Garadachiwadi (Varugad)", "Gatewadi", "Gherewadi", "Gondavale Bk.", "Gondavale Kh.", "Hawaldarwadi (Paryanti)", "Hingani", "Injabav", "Jadhavwadi", "Jambhulani", "Jashi", "Kalaskarwadi (Kulakjai)", "Kalchondi", "Kalewadi (Naravane)", "Karkhel", "Kasarwadi (Andhali)", "Khadaki", "Khandyachiwadi(Varugad)", "Khokade", "Khutbav", "Kiraksal", "Kolewadi", "Kukudwad", "Kulakjai", "Kuranwadi", "Lodhavade", "Mahabaleshwar Wadi", "Mahimangad", "Malavadi", "Mankarnawadi", "Mardi", "Mogarale", "Mohi", "Naravane", "Pachvad", "Palashi", "Palsavade", "Panavan", "Pandharwadi (Mahimangad)", "Pangari", "Parkhandi", "Paryanti", "Pimpari", "Pingali Bk", "Pingali Kh.", "Pukalewadi", "Pulkoti", "Rajavadi", "Ranand", "Ranjani", "Sambhukhed", "Satrewadi (Malavadi)", "Shenwadi", "Shevari", "Shindi Bk.", "Shindi Kh", "Shinganapur", "Shiravali", "Shirtav", "Shripanvan", "Sokasan", "Swarupkhanwadi (Mahimangad)", "Takewadi (Andhali)", "Thadale", "Tondale", "Ugalyachiwadi (Varugad)", "Ukirde", "Vadgaon", "Valai", "Varkute Malavadi", "Varugad", "Virali", "Virobanagar", "Wadjal", "Waki", "Warkute Mhaswad", "Wawarhire", "Yelegaon"
+                "Agaswadi", "Andhali", "Anubhulewadi", "Bangarwadi", "Bhalavadi", "Bhandavali", "Bhatki", "Bidal", "Bijavadi", "Bodake", "Bothe", "Chillarwadi", "Dahivadi", "Danavalewadi", "Dangirewadi", "Dangirewadi", "Devapur", "Dhakani", "Dhamani", "Dhuldev", "Didwaghwadi (Divad)", "Divad", "Divadi (Mahimangad)", "Dorgewadi (Naravane)", "Gadewadi", "Gangoti", "Garadachiwadi (Varugad)", "Gatewadi", "Gherewadi", "Gondavale Bk.", "Gondavale Kh.", "Hawaldarwadi (Paryanti)", "Hingani", "Injabav", "Jadhavwadi", "Jambhulani", "Jashi", "Kalaskarwadi (Kulakjai)", "Kalchondi", "Kalewadi (Naravane)", "Karkhel", "Kasarwadi (Andhali)", "Khadaki", "Khandyachiwadi(Varugad)", "Khokade", "Khokade", "Khutbav", "Kiraksal", "Kolewadi", "Kukudwad", "Kulakjai", "Kuranwadi", "Lodhavade", "Mahabaleshwar Wadi", "Mahimangad", "Malavadi", "Mankarnawadi", "Mardi", "Mogarale", "Mohi", "Naravane", "Pachvad", "Palashi", "Palsavade", "Panavan", "Pandharwadi (Mahimangad)", "Pangari", "Parkhandi", "Paryanti", "Pimpari", "Pingali Bk", "Pingali Kh.", "Pukalewadi", "Pulkoti", "Rajavadi", "Ranand", "Ranjani", "Sambhukhed", "Satrewadi (Malavadi)", "Shenwadi", "Shevari", "Shindi Bk.", "Shindi Kh", "Shinganapur", "Shiravali", "Shirtav", "Shripanvan", "Sokasan", "Swarupkhanwadi (Mahimangad)", "Takewadi (Andhali)", "Thadale", "Tondale", "Ugalyachiwadi (Varugad)", "Ukirde", "Vadgaon", "Valai", "Varkute Malavadi", "Varugad", "Virali", "Virobanagar", "Wadjal", "Waki", "Warkute Mhaswad", "Wawarhire", "Yelegaon"
 
             )),
             Taluka("Patan", listOf(
-                "Aadev Kh.", "Abdarwadi", "Acharewadi", "Adadev", "Adul", "Ambale", "Ambavade Kh.", "Ambavane", "Ambeghar Tarf Marli", "Ambewadi", "Ambrag", "Ambrule", "Aral", "Asawalewadi", "Atoli", "Awarde", "Bacholi", "Bagalwadi", "Bahe", "Bahule", "Baje", "Bamanewadi", "Bamanwadi", "Bambavade", "Bandhvat", "Banpethwadi", "Banpuri", "Belavade Kh.", "Bhambe", "Bharewadi", "Bharsakhale", "Bhilarwadi", "Bhosgaon", "Bhudakewadi", "Bibi", "Bodakewadi", "Bondri", "Bopoli", "Boragewadi", "Borgewadi", "Borgewadi", "Borgewadi", "Chafal", "Chafer", "Chafoli", "Chalkewadi", "Chavanwadi", "Chavanwadi (Dhamani)", "Chawaliwadi", "Chikhalewadi", "Chiteghar", "Chopadi", "Chopdarwadi", "Chougulewadi", "Chougulewadi", "Dadholi", "Dakewadi (Kalgaon)", "Dakewadi (Wazoli)", "Dangistewadi", "Daphalwadi", "Davari", "Dervan", "Deshmukhwadi", "Devghar Tarf Patan", "Dhadamwadi", "Dhajgaon", "Dhamani", "Dhangarwadi", "Dhavade", "Dhayati", "Dhebewadi", "Dhokawale", "Dhoroshi", "Dhuilwadi", "Dicholi", "Digewadi", "Dikshi", "Divashi Bk.", "Divashi Kh", "Dongarobachiwadi", "Donglewadi", "Donichawada", "Dusale", "Dutalwadi", "Ekavadewadi", "Fartarwadi", "Gadhav Khop", "Galmewadi", "Gamewadi", "Garawade", "Gavhanwadi", "Gawalinagar", "Gawdewadi", "Gaymukhwadi", "Ghanav", "Ghanbi", "Ghatewadi", "Ghatmatha", "Gheradategad", "Ghot", "Ghotil", "Giraswadi", "Girewadi", "Gokul Tarf Helwak", "Gokul Tarf Patan", "Gorewadi", "Goshatwadi", "Gothane", "Govare", "Gudhe", "Gujarwadi", "Gunjali", "Guteghar", "Harugdewadi", "Helwak", "Humbarli", "Humbarne", "Humbarwadi", "Jadhavwadi", "Jadhavwadi", "Jaichiwadi", "Jalagewadi", "Jalu", "Jambhalwadi", "Jambhekarwadi", "Jamdadwadi and Chaugulewadi", "Jangal Wadi", "Janugdewadi", "Jarewadi", "Jinti", "Jugaiwadi", "Jungati", "Jyotibachiwadi", "Kadave Bk.", "Kadave Kh", "Kadhane", "Kadoli", "Kahir", "Kalambe", "Kalgaon", "Kalkewadi", "Kaloli", "Kamargaon", "Karale", "Karapewadi", "Karate", "Karpewadi", "Karvat", "Kasani", "Kasrund", "Katewadi", "Kathi", "Katvadi", "Kavadewadi", "Kavarwadi", "Keloli", "Kemase", "Ker", "Keral", "Khale", "Kharadwadi", "Khilarwadi", "Khivashi", "Khonoli", "Killemorgiri", "Kisrule", "Kocharewadi", "Kodal", "Kokisare", "Kolagewadi", "Kolane", "Kolekarwadi", "Kondhavale", "Konjavade", "Korivale", "Kotawadewadi", "Kumbhargaon", "Kusavade", "Kushi", "Kuthare", "Lendhori", "Letamewadi", "Loharwadi", "Lotalewadi", "Lugadewadi", "Mahind", "Majgaon", "Mala", "Maldan", "Malharpeth", "Maloshi", "Manainagar", "Mandrulkole", "Mandrulkole Kh.", "Mandure", "Maneri", "Manewadi", "Manyachiwadi", "Manyachiwadi", "Marali", "Marathwadi", "Marathwadi", "Marekarwadi", "Marloshi", "Marul Haveli", "Marul Tarf Patan", "Maskarwadi", "Maskarwadi", "Maskarwadi No. 1", "Mastewadi", "Mathanewadi", "Matrewadi", "Maulinagar", "Maundrul Haveli", "Mendh", "Mendheghar", "Mendhoshi", "Mharwand", "Mhavashi", "Mirgaon", "Modakwadi", "Morewadi (Kuthare)", "Morgiri", "Mulgaon", "Murud", "Muttalwadi", "Nade", "Nadoli", "Nahimbe", "Nanegaon Bk.", "Nanegaon Kh.", "Nanel", "Naralwadi", "Natoshi", "Nav", "Navadi", "Navasarwadi", "Nawaja", "Nechal", "Nerale", "Nigade", "Nisare", "Nivade", "Nivakane", "Nivi", "Nune", "Pabhalwadi", "Pachgani", "Pachupatewadi", "Padekarwadi", "Padharwadi Telewadi", "Padloshi", "Pagewadi", "Palashi", "Pandharwadi", "Paneri", "Paparde Bk", "Paparde Kh.", "Patharpunj", "Pathavade", "Pawarwadi", "Pawarwadi", "Petekarwadi", "Pethshivapur", "Pimpaloshi", "Punvali", "Rahude", "Ramishtewadi", "Rasati", "Risawad", "Ruvale", "Sabalewadi", "Sadawaghapur", "Saikade", "Sakhari", "Salave", "Saltewadi", "Sanbur", "Sangwad", "Satar", "Sawantwadi", "Sawarghar", "Shedgewadi", "Shendewadi (Kumbhargaon)", "Shibewadi", "Shidrukwadi", "Shindewadi", "Shinganwadi", "Shiral", "Shirshinge", "Shitapwadi", "Shivandeshwar", "Siddheshwar Nagar", "Sonaichiwadi", "Sonavade", "Subhashnagar", "Sulewadi", "Supugadewadi", "Surul", "Sutarwadi", "Taliye", "Tamine", "Tamkade", "Tamkane", "Tarale", "Taygadewadi", "Telewadi", "Thankal", "Thomase", "Tolewadi", "Tondoshi", "Torane", "Tripudi", "Tupewadi", "Udhavane", "Umarkanchan", "Urul", "Vadi Kotawade", "Vaichalwadi", "Vajegaon", "Vajegaon", "Vajroshi", "Van", "Vanzole", "Varekarwadi", "Varpewadi", "Vatole", "Vekhandwadi", "Vetalwadi", "Vihe", "Virewadi", "Vittalwadi", "Waghane", "Wagjaiwadi", "Wazoli", "Yelavewadi", "Yerad", "Yeradwadi", "Yerphale", "Zadoli", "Zakade"
+                "Aadev Kh.", "Abdarwadi", "Acharewadi", "Adadev", "Adul", "Ambale", "Ambavade Kh.", "Ambavane", "Ambeghar Tarf Marli", "Ambewadi", "Ambrag", "Ambrule", "Aral", "Asawalewadi", "Atoli", "Awarde", "Bacholi", "Bagalwadi", "Bahe", "Bahule", "Baje", "Bamanewadi", "Bamanwadi", "Bambavade", "Bandhvat", "Banpethwadi", "Banpuri", "Belavade Kh.", "Bhambe", "Bharewadi", "Bharsakhale", "Bhilarwadi", "Bhosgaon", "Bhudakewadi", "Bibi", "Bodakewadi", "Bondri", "Bopoli", "Boragewadi", "Borgewadi", "Borgewadi", "Borgewadi", "Chafal", "Chafer", "Chafoli", "Chalkewadi", "Chavanwadi", "Chavanwadi (Dhamani)", "Chawaliwadi", "Chikhalewadi", "Chiteghar", "Chopadi", "Chopdarwadi", "Chougulewadi", "Chougulewadi", "Dadholi", "Dakewadi (Kalgaon)", "Dakewadi (Wazoli)", "Dangistewadi", "Daphalwadi", "Davari", "Dervan", "Deshmukhwadi", "Devghar Tarf Patan", "Dhadamwadi", "Dhajgaon", "Dhamani", "Dhangarwadi", "Dhavade", "Dhayati", "Dhebewadi", "Dhokawale", "Dhoroshi", "Dhuilwadi", "Dicholi", "Digewadi", "Dikshi", "Divashi Bk.", "Divashi Kh", "Dongarobachiwadi", "Donglewadi", "Donichawada", "Dusale", "Dutalwadi", "Ekavadewadi", "Fartarwadi", "Gadhav Khop", "Galmewadi", "Gamewadi", "Garawade", "Gavhanwadi", "Gawalinagar", "Gawdewadi", "Gaymukhwadi", "Ghanav", "Ghanbi", "Ghatewadi", "Ghatmatha", "Gheradategad", "Ghot", "Ghotil", "Giraswadi", "Girewadi", "Gokul Tarf Helwak", "Gokul Tarf Patan", "Gorewadi", "Goshatwadi", "Gothane", "Govare", "Gudhe", "Gujarwadi", "Gunjali", "Guteghar", "Harugdewadi", "Helwak", "Humbarli", "Humbarne", "Humbarwadi", "Jadhavwadi", "Jadhavwadi", "Jaichiwadi", "Jalagewadi", "Jalu", "Jambhalwadi", "Jambhali", "Jangal Wadi", "Janugdewadi", "Jarewadi", "Jinti", "Jugaiwadi", "Jungati", "Jyotibachiwadi", "Kadave Bk.", "Kadave Kh", "Kadhane", "Kadoli", "Kahir", "Kalambe", "Kalgaon", "Kalkewadi", "Kaloli", "Kamargaon", "Karale", "Karapewadi", "Karate", "Karpewadi", "Karvat", "Kasani", "Kasrund", "Katewadi", "Kathi", "Katvadi", "Kavadewadi", "Kavarwadi", "Keloli", "Kemase", "Ker", "Keral", "Khale", "Kharadwadi", "Khilarwadi", "Khivashi", "Khonoli", "Killemorgiri", "Kisrule", "Kocharewadi", "Kodal", "Kokisare", "Kolagewadi", "Kolane", "Kolekarwadi", "Kondhavale", "Konjavade", "Korivale", "Kotawadewadi", "Kumbhargaon", "Kusavade", "Kushi", "Kuthare", "Lendhori", "Letamewadi", "Loharwadi", "Lotalewadi", "Lugadewadi", "Mahind", "Majgaon", "Mala", "Maldan", "Malharpeth", "Maloshi", "Manainagar", "Mandrulkole", "Mandrulkole Kh.", "Mandure", "Maneri", "Manewadi", "Manyachiwadi", "Manyachiwadi", "Marali", "Marathwadi", "Marathwadi", "Marekarwadi", "Marloshi", "Marul Haveli", "Marul Tarf Patan", "Maskarwadi", "Maskarwadi", "Maskarwadi No. 1", "Mastewadi", "Mathanewadi", "Matrewadi", "Maulinagar", "Maundrul Haveli", "Mendh", "Mendheghar", "Mendhoshi", "Mharwand", "Mhavashi", "Mirgaon", "Modakwadi", "Morewadi (Kuthare)", "Morgiri", "Mulgaon", "Murud", "Muttalwadi", "Nade", "Nadoli", "Nahimbe", "Nanegaon Bk.", "Nanegaon Kh.", "Nanel", "Naralwadi", "Natoshi", "Nav", "Navadi", "Navasarwadi", "Nawaja", "Nechal", "Nerale", "Nigade", "Nisare", "Nivade", "Nivi", "Nune", "Pabhalwadi", "Pachgani", "Pachupatewadi", "Padekarwadi", "Padharwadi Telewadi", "Padloshi", "Pagewadi", "Palashi", "Pandharwadi", "Paneri", "Paparde Bk", "Paparde Kh.", "Patharpunj", "Pathavade", "Pawarwadi", "Pawarwadi", "Petekarwadi", "Pethshivapur", "Pimpaloshi", "Punvali", "Rahude", "Ramishtewadi", "Rasati", "Risawad", "Ruvale", "Sabalewadi", "Sadawaghapur", "Saikade", "Sakhari", "Salave", "Saltewadi", "Sanbur", "Sangwad", "Satar", "Sawantwadi", "Sawarghar", "Shedgewadi", "Shendewadi (Kumbhargaon)", "Shibewadi", "Shidrukwadi", "Shindewadi", "Shinganwadi", "Shiral", "Shirshinge", "Shitapwadi", "Shivandeshwar", "Siddheshwar Nagar", "Sonaichiwadi", "Sonavade", "Subhashnagar", "Sulewadi", "Supugadewadi", "Surul", "Sutarwadi", "Taliye", "Tamine", "Tamkade", "Tamkane", "Tarale", "Taygadewadi", "Telewadi", "Thankal", "Thomase", "Tolewadi", "Tondoshi", "Torane", "Tripudi", "Tupewadi", "Udhavane", "Umarkanchan", "Urul", "Vadi Kotawade", "Vaichalwadi", "Vajegaon", "Vajegaon", "Vajroshi", "Van", "Vanzole", "Varekarwadi", "Varpewadi", "Vatole", "Vekhandwadi", "Vetalwadi", "Vihe", "Virewadi", "Vittalwadi", "Waghane", "Wagjaiwadi", "Wazoli", "Yelavewadi", "Yerad", "Yeradwadi", "Yerphale", "Zadoli", "Zakade"
 
             )),
             Taluka("Phaltan", listOf(
@@ -190,9 +257,9 @@ class MarketplaceViewModel : ViewModel() {
 
     private fun initializeFoodsByCategory() {
         _foodsByCategory.value = mapOf(
-            Category.GRAINS to listOf("Wheat", "Rice", "Corn", "Jowar"),
-            Category.VEGETABLES to listOf("Tomatoes", "Potatoes"),
             Category.FRUITS to listOf("Grapes", "Strawberries"),
+            Category.VEGETABLES to listOf("Tomatoes", "Potatoes"),
+            Category.GRAINS to listOf("Wheat", "Rice", "Corn", "Jowar"),
             Category.OILSEEDS to listOf("Soybean")
         )
     }
@@ -213,51 +280,66 @@ class MarketplaceViewModel : ViewModel() {
         _customRate.value = rate
     }
 
-    fun getEffectiveRate(): Int {
-        return _customRate.value.toIntOrNull() ?: _selectedProduct.value?.rate ?: 0
+    fun getEffectiveRate(): Double {
+        return _customRate.value.toDoubleOrNull() ?: _selectedProduct.value?.rate?.toDouble() ?: 0.0
     }
 
     private fun setupRealTimeListeners() {
+        println("Debug: Setting up real-time listeners")
+        
         // Listen for all crops
-        cropsListener = cropsCollection.addSnapshotListener { snapshot, error ->
+        cropsListener = cropsCollection
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, error ->
             if (error != null) {
+                    println("Debug: Error listening to crops: ${error.message}")
                 _error.value = "Error listening to crops: ${error.message}"
                 return@addSnapshotListener
             }
 
             snapshot?.let { querySnapshot ->
-                val currentUser = AuthHelper.getCurrentUserEmail()
+                    println("Debug: Received ${querySnapshot.documents.size} crops")
                 val cropsList = querySnapshot.documents.mapNotNull { doc ->
                     try {
                         val data = doc.data
+                            println("Debug: Processing crop document: ${doc.id}")
+                            println("Debug: Crop data: $data")
+                            
                         if (data != null) {
                             ListedCrop(
                                 id = doc.id,
-                                name = data["name"] as? String ?: "",
-                                quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
-                                rate = (data["rate"] as? Long)?.toInt() ?: 0,
-                                location = data["location"] as? String ?: "",
-                                category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
-                                sellerName = data["sellerName"] as? String,
-                                sellerContact = data["sellerContact"] as? String,
-                                timestamp = null,
-                                buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
-                                    BuyerDetail(
-                                        name = buyer["name"] as? String ?: "",
-                                        contactInfo = buyer["contactInfo"] as? String ?: "",
-                                        address = buyer["address"] as? String ?: "",
-                                        requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0,
-                                        status = buyer["status"] as? String ?: "PENDING"
-                                    )
-                                } ?: emptyList(),
-                                isOwnListing = data["sellerEmail"] == currentUser
+                                name = data["name"]?.toString() ?: "",
+                                quantity = (data["quantity"] as? Number)?.toInt() ?: 0,
+                                rate = (data["rate"] as? Number)?.toDouble() ?: 0.0,
+                                location = data["location"]?.toString() ?: "",
+                                    category = try {
+                                        Category.valueOf((data["category"] as? String)?.uppercase() ?: Category.GRAINS.name)
+                                    } catch (e: Exception) {
+                                        println("Debug: Error parsing category: ${e.message}")
+                                        Category.GRAINS
+                                    },
+                                sellerName = data["sellerName"]?.toString() ?: "Unknown Seller",
+                                sellerContact = data["sellerContact"]?.toString() ?: "No contact provided",
+                                    timestamp = data["timestamp"] as? Timestamp ?: data["createdAt"] as? Timestamp,
+                                    status = data["status"]?.toString() ?: "available",
+                                    isOwnListing = data["sellerEmail"] == AuthHelper.getCurrentUserEmail(),
+                                    description = data["description"]?.toString() ?: "",
+                                    price = (data["price"] as? Number)?.toDouble() ?: 0.0,
+                                    imageUrl = data["imageUrl"]?.toString() ?: "",
+                                    farmerId = data["farmerId"]?.toString() ?: "",
+                                    farmerName = data["farmerName"]?.toString() ?: "",
+                                    createdAt = data["createdAt"] as? Timestamp,
+                                    rating = (data["rating"] as? Number)?.toDouble() ?: 0.0,
+                                    totalRatings = (data["totalRatings"] as? Number)?.toInt() ?: 0
                             )
                         } else null
                     } catch (e: Exception) {
+                            println("Debug: Error parsing crop data: ${e.message}")
                         _error.value = "Error parsing crop data: ${e.message}"
                         null
                     }
                 }
+                    println("Debug: Processed ${cropsList.size} valid crops")
                 _listedCrops.value = cropsList
             }
         }
@@ -281,19 +363,19 @@ class MarketplaceViewModel : ViewModel() {
                                     id = doc.id,
                                     name = data["name"] as? String ?: "",
                                     quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
-                                    rate = (data["rate"] as? Long)?.toInt() ?: 0,
+                                    rate = (data["rate"] as? Long)?.toDouble() ?: 0.0,
                                     location = data["location"] as? String ?: "",
                                     category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
-                                    sellerName = data["sellerName"] as? String,
-                                    sellerContact = data["sellerContact"] as? String,
+                                    sellerName = data["sellerName"] as? String ?: "Unknown Seller",
+                                    sellerContact = data["sellerContact"] as? String ?: "No contact provided",
                                     timestamp = null,
                                     buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
                                         BuyerDetail(
-                                            name = buyer["name"] as? String ?: "",
-                                            contactInfo = buyer["contactInfo"] as? String ?: "",
-                                            address = buyer["address"] as? String ?: "",
+                                            name = buyer["name"]?.toString() ?: "",
+                                            contactInfo = buyer["contactInfo"]?.toString() ?: "",
+                                            address = buyer["address"]?.toString() ?: "",
                                             requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0,
-                                            status = buyer["status"] as? String ?: "PENDING"
+                                            status = buyer["status"]?.toString() ?: "PENDING"
                                         )
                                     } ?: emptyList(),
                                     isOwnListing = true
@@ -310,47 +392,49 @@ class MarketplaceViewModel : ViewModel() {
     }
 
     private fun setupPurchaseRequestsListener() {
-        val currentUserEmail = AuthHelper.getCurrentUserEmail()
-        if (currentUserEmail != null) {
-            purchaseRequestsListener?.remove() // Remove existing listener if any
-            
+        viewModelScope.launch {
+            try {
+                println("Debug: Setting up purchase requests listener")
+                val currentUser = auth.currentUser
+                if (currentUser == null) {
+                    println("Debug: No authenticated user found")
+                    _error.value = "User not authenticated"
+                    return@launch
+                }
+
+                // Listen for purchase requests where user is the buyer
             purchaseRequestsListener = db.collection("purchase_requests")
-                .whereEqualTo("buyerEmail", currentUserEmail)
+                    .whereEqualTo("buyerEmail", currentUser.email)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
-                        _error.value = "Error listening to purchase requests: ${error.message}"
+                            println("Debug: Error listening to purchase requests: ${error.message}")
+                            _error.value = "Error fetching purchase requests: ${error.message}"
                         return@addSnapshotListener
                     }
 
-                    snapshot?.let { querySnapshot ->
-                        val requests = querySnapshot.documents.mapNotNull { doc ->
+                        println("Debug: Received purchase requests snapshot. Documents count: ${snapshot?.documents?.size ?: 0}")
+                        
+                        val requests = snapshot?.documents?.mapNotNull { doc ->
                             try {
-                                val data = doc.data
-                                if (data != null) {
-                                    data["id"] = doc.id // Add document ID to the data map
-                                    println("Processing purchase request - ID: ${doc.id}")
-                                    println("Raw data from Firestore: $data")
-                                    println("AcceptedQuantity in raw data: ${data["acceptedQuantity"]}")
-                                    
-                                    val request = PurchaseRequest.fromMap(data)
-                                    println("Parsed request details:")
-                                    println("- Status: ${request.status}")
-                                    println("- Quantity: ${request.quantity}")
-                                    println("- Accepted Quantity: ${request.acceptedQuantity}")
-                                    println("- Total Amount: ${request.totalAmount}")
-                                    println("- Accepted At: ${request.acceptedAt}")
-                                    request
-                                } else null
+                                println("Debug: Processing purchase request document: ${doc.id}")
+                                println("Debug: Document data: ${doc.data}")
+                                PurchaseRequest.fromMap(doc.id, doc.data ?: emptyMap())
                             } catch (e: Exception) {
-                                println("Error converting purchase request: ${e.message}")
-                                e.printStackTrace()
+                                println("Debug: Error parsing purchase request: ${e.message}")
+                                _error.value = "Error parsing purchase request: ${e.message}"
                                 null
                             }
-                        }.sortedByDescending { it.createdAt?.toDate() }
+                        } ?: emptyList()
                         
-                        println("Total purchase requests loaded: ${requests.size}")
+                        println("Debug: Processed ${requests.size} valid purchase requests")
                         _purchaseRequests.value = requests
                     }
+
+                setupSellerPurchaseRequestsListener()
+            } catch (e: Exception) {
+                println("Debug: Error in setupPurchaseRequestsListener: ${e.message}")
+                e.printStackTrace()
+                _error.value = "Error setting up purchase requests listener: ${e.message}"
                 }
         }
     }
@@ -384,24 +468,23 @@ class MarketplaceViewModel : ViewModel() {
                         
                         val selectedCrop = ListedCrop(
                             id = cropDoc.id,
-                            name = data["name"] as? String ?: "",
-                            quantity = (data["quantity"] as? Long)?.toInt() ?: 0,
-                            rate = (data["rate"] as? Long)?.toInt() ?: 0,
-                            location = data["location"] as? String ?: "",
-                            category = Category.valueOf(data["category"] as? String ?: Category.GRAINS.name),
-                            sellerName = data["sellerName"] as? String,
-                            sellerContact = data["sellerContact"] as? String,
-                            timestamp = null,
+                            name = data["name"]?.toString() ?: "",
+                            quantity = (data["quantity"] as? Number)?.toInt() ?: 0,
+                            rate = (data["rate"] as? Number)?.toDouble() ?: 0.0,
+                            location = data["location"]?.toString() ?: "",
+                            category = Category.valueOf((data["category"] as? String) ?: Category.GRAINS.name),
+                            sellerName = data["sellerName"]?.toString() ?: "Unknown Seller",
+                            sellerContact = data["sellerContact"]?.toString() ?: "No contact provided",
+                            timestamp = (data["timestamp"] as? Timestamp),
                             buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
                                 BuyerDetail(
-                                    name = buyer["name"] as? String ?: "",
-                                    contactInfo = buyer["contactInfo"] as? String ?: "",
-                                    address = buyer["address"] as? String ?: "",
-                                    requestedQuantity = (buyer["requestedQuantity"] as? Long)?.toInt() ?: 0,
-                                    status = buyer["status"] as? String ?: "PENDING"
+                                    name = buyer["name"]?.toString() ?: "",
+                                    contactInfo = buyer["contactInfo"]?.toString() ?: "",
+                                    address = buyer["address"]?.toString() ?: "",
+                                    requestedQuantity = (buyer["requestedQuantity"] as? Number)?.toInt() ?: 0,
+                                    status = buyer["status"]?.toString() ?: "PENDING"
                                 )
-                            } ?: emptyList(),
-                            isOwnListing = data["sellerEmail"] == currentUser
+                            } ?: emptyList()
                         )
                         
                         _selectedCrop.value = selectedCrop
@@ -419,79 +502,85 @@ class MarketplaceViewModel : ViewModel() {
 
     fun sendPurchaseRequest(cropId: String, buyerDetail: BuyerDetail) {
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                _isLoading.value = true
-                _error.value = null
-
-                val currentUserEmail = AuthHelper.getCurrentUserEmail()
-                if (currentUserEmail == null) {
-                    _error.value = "Please login to make a purchase request"
-                    return@launch
+                println("Debug: Starting purchase request process")
+                
+                // Validate buyer details
+                if (buyerDetail.name.isBlank() || 
+                    buyerDetail.contactInfo.isBlank() || 
+                    buyerDetail.address.isBlank() || 
+                    buyerDetail.requestedQuantity <= 0) {
+                    throw Exception("Please fill in all required fields: Name, Contact, Address, and Quantity")
                 }
 
-                // Find the crop in Firestore
-                val cropRef = cropsCollection.document(cropId)
-                val cropDoc = cropRef.get().await()
+                val currentUser = AuthHelper.getCurrentUserEmail() ?: throw Exception("User not logged in")
+                val currentUserId = AuthHelper.getCurrentUserId() ?: throw Exception("User ID not found")
+
+                // Get crop details first
+                val cropDoc = db.collection("crops").document(cropId).get().await()
+                val cropData = cropDoc.data ?: throw Exception("Crop not found")
                 
-                if (cropDoc.exists()) {
-                    // Get current buyer details
-                    val currentBuyerDetails = (cropDoc.get("buyerDetails") as? List<Map<String, Any>>) ?: emptyList()
+                val requestData = hashMapOf(
+                    "cropId" to cropId,
+                    "cropName" to cropData["name"]?.toString(),
+                    "buyerId" to currentUserId,
+                    "buyerName" to buyerDetail.name,
+                    "buyerContact" to buyerDetail.contactInfo,
+                    "buyerEmail" to currentUser,
+                    "sellerId" to cropData["sellerId"]?.toString(),
+                    "sellerName" to cropData["sellerName"]?.toString(),
+                    "sellerEmail" to cropData["sellerEmail"]?.toString(),
+                    "requestedQuantity" to buyerDetail.requestedQuantity,
+                    "acceptedQuantity" to 0,
+                    "totalAmount" to (buyerDetail.requestedQuantity * ((cropData["rate"] as? Number)?.toDouble() ?: 0.0)),
+                    "status" to "pending",
+                    "createdAt" to Timestamp.now(),
+                    "updatedAt" to Timestamp.now(),
+                    "deliveryAddress" to buyerDetail.address
+                )
+
+                println("Debug: Sending request data to cloud function: $requestData")
+
+                try {
+                    // First try cloud function
+                    println("Debug: Attempting to create purchase request via cloud function")
+                    val result = functions
+                        .getHttpsCallable("createPurchaseRequest")
+                        .call(requestData)
+                        .await()
+                    println("Debug: Cloud function response: $result")
+                } catch (e: Exception) {
+                    println("Debug: Cloud function failed, falling back to direct creation: ${e.message}")
                     
-                    // Create new buyer detail map with PENDING status
-                    val newBuyerDetail = mapOf(
+                    // Fallback: Create directly in Firestore
+                    val docRef = db.collection("purchase_requests").add(requestData).await()
+                    println("Debug: Created purchase request directly with ID: ${docRef.id}")
+
+                    // Also update the crop's buyerDetails
+                    val currentRequests = (cropData["buyerDetails"] as? List<Map<String, Any>> ?: emptyList()).toMutableList()
+                    currentRequests.add(
+                        hashMapOf(
                         "name" to buyerDetail.name,
                         "contactInfo" to buyerDetail.contactInfo,
                         "address" to buyerDetail.address,
-                        "requestedQuantity" to buyerDetail.requestedQuantity,
-                        "status" to "PENDING",
-                        "acceptedQuantity" to 0
+                            "requestedQuantity" to buyerDetail.requestedQuantity,
+                            "status" to "PENDING"
+                        )
                     )
                     
-                    // Update the document
-                    cropRef.update(
-                        mapOf(
-                            "buyerDetails" to (currentBuyerDetails + newBuyerDetail),
-                            "lastUpdated" to com.google.firebase.Timestamp.now()
-                        )
-                    ).await()
-
-                    // Create a new purchase request document
-                    val rate = cropDoc.getLong("rate") ?: 0L
-                    val purchaseRequest = hashMapOf(
-                        "cropId" to cropId,
-                        "cropName" to (cropDoc.get("name") as? String ?: ""),
-                        "sellerName" to (cropDoc.get("sellerName") as? String ?: ""),
-                        "buyerEmail" to currentUserEmail,
-                        "buyerName" to buyerDetail.name,
-                        "status" to "PENDING",
-                        "quantity" to buyerDetail.requestedQuantity,
-                        "acceptedQuantity" to 0,
-                        "totalAmount" to (buyerDetail.requestedQuantity * rate),
-                        "date" to com.google.firebase.Timestamp.now().toDate().toString(),
-                        "createdAt" to com.google.firebase.Timestamp.now()
-                    )
-
-                    // Add the purchase request to Firestore
-                    db.collection("purchase_requests").add(purchaseRequest).await()
-
-                    // Also update the selected crop if it exists
-                    _selectedCrop.value?.let { currentCrop ->
-                        if (currentCrop.id == cropId) {
-                            val updatedBuyerDetails = currentCrop.buyerDetails + BuyerDetail(
-                                name = buyerDetail.name,
-                                contactInfo = buyerDetail.contactInfo,
-                                address = buyerDetail.address,
-                                requestedQuantity = buyerDetail.requestedQuantity,
-                                status = "PENDING"
-                            )
-                            _selectedCrop.value = currentCrop.copy(buyerDetails = updatedBuyerDetails)
-                        }
-                    }
-
-                    // Refresh the data
-                    refresh()
+                    db.collection("crops").document(cropId)
+                        .update("buyerDetails", currentRequests)
+                        .await()
                 }
+
+                // Refresh data
+                refresh()
+                setupPurchaseRequestsListener()
+
             } catch (e: Exception) {
+                println("Debug: Error in sendPurchaseRequest: ${e.message}")
+                e.printStackTrace()
                 _error.value = "Failed to send purchase request: ${e.message}"
             } finally {
                 _isLoading.value = false
@@ -513,120 +602,90 @@ class MarketplaceViewModel : ViewModel() {
         }
     }
 
-    fun acceptBuyerRequest(cropId: String, requestId: String, acceptedQuantity: Int) {
+    fun acceptBuyerRequest(requestId: String, acceptedQuantity: Int) {
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                val db = Firebase.firestore
-                val cropRef = db.collection("crops").document(cropId)
-                val requestRef = db.collection("purchase_requests").document(requestId)
-
-                db.runTransaction { transaction ->
-                    val cropDoc = transaction.get(cropRef)
-                    val requestDoc = transaction.get(requestRef)
-
-                    if (!cropDoc.exists() || !requestDoc.exists()) {
-                        throw Exception("Crop or request document not found")
-                    }
-
-                    val cropData = cropDoc.data
-                    val requestData = requestDoc.data
-                    
-                    if (cropData == null || requestData == null) {
-                        throw Exception("Invalid crop or request data")
-                    }
-
-                    val availableQuantity = (cropData["quantity"] as? Number)?.toInt() ?: 0
-                    if (acceptedQuantity > availableQuantity) {
-                        throw Exception("Accepted quantity exceeds available quantity")
-                    }
-
-                    // Update crop document
-                    val newQuantity = availableQuantity - acceptedQuantity
-                    transaction.update(cropRef, "quantity", newQuantity)
-
-                    // Update purchase request
-                    val rate = (requestData["rate"] as? Number)?.toInt() ?: 0
-                    val totalAmount = acceptedQuantity * rate.toDouble()
-                    val updates = mapOf(
-                        "acceptedQuantity" to acceptedQuantity,
-                        "totalAmount" to totalAmount,
-                        "status" to "ACCEPTED",
-                        "acceptedAt" to com.google.firebase.Timestamp.now()
-                    )
-                    transaction.update(requestRef, updates)
-
-                    // Create accepted request document
-                    val acceptedRequestData = mapOf(
-                        "cropId" to cropId,
-                        "cropName" to (cropData["name"] as? String ?: ""),
-                        "buyerEmail" to (requestData["buyerEmail"] as? String ?: ""),
-                        "buyerName" to (requestData["buyerName"] as? String ?: ""),
-                        "sellerName" to (cropData["sellerName"] as? String ?: ""),
-                        "requestedQuantity" to (requestData["quantity"] as? Int ?: 0),
-                        "acceptedQuantity" to acceptedQuantity,
-                        "rate" to rate,
-                        "totalAmount" to totalAmount,
-                        "acceptedAt" to com.google.firebase.Timestamp.now(),
+                println("Debug: Starting request acceptance process")
+                
+                // Get the purchase request
+                val requestDoc = db.collection("purchase_requests").document(requestId).get().await()
+                val requestData = requestDoc.data ?: throw Exception("Purchase request not found")
+                
+                val cropId = requestData["cropId"]?.toString() ?: throw Exception("Crop ID not found")
+                val requestedQuantity = (requestData["requestedQuantity"] as? Number)?.toInt() ?: 0
+                
+                // Validate accepted quantity
+                if (acceptedQuantity <= 0 || acceptedQuantity > requestedQuantity) {
+                    throw Exception("Invalid accepted quantity. Must be between 1 and $requestedQuantity")
+                }
+                
+                // Get the crop document
+                val cropDoc = db.collection("crops").document(cropId).get().await()
+                val cropData = cropDoc.data ?: throw Exception("Crop not found")
+                val currentQuantity = (cropData["quantity"] as? Number)?.toInt() ?: 0
+                
+                if (acceptedQuantity > currentQuantity) {
+                    throw Exception("Cannot accept more than available quantity ($currentQuantity kg)")
+                }
+                
+                // Update purchase request
+                db.collection("purchase_requests").document(requestId)
+                    .update(
+                        mapOf(
+                            "status" to "accepted",
+                            "acceptedQuantity" to acceptedQuantity,
+                            "updatedAt" to Timestamp.now()
+                        )
+                    ).await()
+                
+                // Update crop quantity
+                val newQuantity = currentQuantity - acceptedQuantity
+                db.collection("crops").document(cropId)
+                    .update(
+                        mapOf(
+                            "quantity" to newQuantity,
+                            "updatedAt" to Timestamp.now()
+                        )
+                    ).await()
+                
+                // Update buyer details in crop document
+                val buyerDetails = (cropData["buyerDetails"] as? List<Map<String, Any>> ?: emptyList()).toMutableList()
+                val buyerIndex = buyerDetails.indexOfFirst { 
+                    it["name"] == requestData["buyerName"] && it["status"] == "PENDING"
+                }
+                
+                if (buyerIndex != -1) {
+                    buyerDetails[buyerIndex] = mapOf(
+                        "name" to (requestData["buyerName"] ?: ""),
+                        "contactInfo" to (requestData["buyerContact"] ?: ""),
+                        "address" to (requestData["deliveryAddress"] ?: ""),
+                        "requestedQuantity" to acceptedQuantity,
                         "status" to "ACCEPTED"
                     )
                     
-                    val acceptedRequestRef = db.collection("accepted_requests").document()
-                    transaction.set(acceptedRequestRef, acceptedRequestData)
+                    db.collection("crops").document(cropId)
+                        .update("buyerDetails", buyerDetails)
+                        .await()
                 }
+
+                // If quantity is now 0, mark crop as sold
+                if (newQuantity == 0) {
+                    db.collection("crops").document(cropId)
+                        .update("status", "sold")
+                        .await()
+                }
+
+                println("Debug: Successfully accepted purchase request")
+                refresh() // Refresh all data
+
             } catch (e: Exception) {
-                println("Error accepting buyer request: ${e.message}")
-                throw e
+                println("Debug: Error accepting purchase request: ${e.message}")
+                e.printStackTrace()
+                _error.value = "Failed to accept purchase request: ${e.message}"
+            } finally {
+                _isLoading.value = false
             }
-        }
-    }
-
-    private fun setupAcceptedRequestsListener() {
-        val currentUserEmail = AuthHelper.getCurrentUserEmail()
-        if (currentUserEmail != null) {
-            acceptedRequestsListener?.remove()
-
-            acceptedRequestsListener = db.collection("accepted_requests")
-                .whereEqualTo("buyerEmail", currentUserEmail)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        _error.value = "Error listening to accepted requests: ${error.message}"
-                        return@addSnapshotListener
-                    }
-
-                    snapshot?.let { querySnapshot ->
-                        val requests = querySnapshot.documents.mapNotNull { doc ->
-                            try {
-                                val data = doc.data
-                                if (data != null) {
-                                    AcceptedRequest(
-                                        id = doc.id,
-                                        cropId = data["cropId"] as? String ?: "",
-                                        cropName = data["cropName"] as? String ?: "",
-                                        buyerEmail = data["buyerEmail"] as? String ?: "",
-                                        buyerName = data["buyerName"] as? String ?: "",
-                                        sellerName = data["sellerName"] as? String ?: "",
-                                        requestedQuantity = (data["requestedQuantity"] as? Long)?.toInt() ?: 0,
-                                        acceptedQuantity = (data["acceptedQuantity"] as? Long)?.toInt() ?: 0,
-                                        rate = (data["rate"] as? Long)?.toInt() ?: 0,
-                                        totalAmount = when (val amount = data["totalAmount"]) {
-                                            is Long -> amount.toDouble()
-                                            is Double -> amount
-                                            else -> 0.0
-                                        },
-                                        acceptedAt = data["acceptedAt"] as? com.google.firebase.Timestamp,
-                                        status = data["status"] as? String ?: "ACCEPTED"
-                                    )
-                                } else null
-                            } catch (e: Exception) {
-                                println("Error converting accepted request: ${e.message}")
-                                e.printStackTrace()
-                                null
-                            }
-                        }.sortedByDescending { it.acceptedAt?.toDate() }
-
-                        _acceptedRequests.value = requests
-                    }
-                }
         }
     }
 
@@ -634,21 +693,9 @@ class MarketplaceViewModel : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                // Delete the crop document
-                cropsCollection.document(cropId).delete().await()
-
-                // Delete any associated purchase requests
-                val purchaseRequests = db.collection("purchase_requests")
-                    .whereEqualTo("cropId", cropId)
-                    .get()
-                    .await()
-
-                for (doc in purchaseRequests.documents) {
-                    doc.reference.delete().await()
-                }
-
-                // Refresh the data
-                refresh()
+                val data = hashMapOf("cropId" to cropId)
+                val result = functions.getHttpsCallable("deleteCrop").call(data).await()
+                refresh() // Refresh the data after deleting
             } catch (e: Exception) {
                 _error.value = "Failed to delete crop: ${e.message}"
             } finally {
@@ -657,30 +704,29 @@ class MarketplaceViewModel : ViewModel() {
         }
     }
 
-    fun getTodaysRate(cropName: String): Int {
-        // This is a placeholder implementation
-        // In a real app, you would fetch this from an API or database
+    fun getTodaysRate(cropName: String): Double {
         return when (cropName.lowercase()) {
-            "wheat" -> 2500
-            "rice" -> 3000
-            "corn" -> 2000
-            "millet" -> 3500
-            "jowar" -> 2800
-            "bajra" -> 2700
-            "tomatoes" -> 50
-            "potatoes" -> 30
-            "bananas" -> 40
-            "grapes" -> 100
-            "strawberries" -> 200
-            "soybean" -> 4500
-            else -> 0
+            // Grains
+            "wheat" -> 2500.0
+            "rice" -> 3000.0
+            "corn" -> 2000.0
+            "jowar" -> 2800.0
+            // Vegetables
+            "tomatoes" -> 50.0
+            "potatoes" -> 30.0
+            // Fruits
+            "grapes" -> 100.0
+            "strawberries" -> 200.0
+            // Oilseeds
+            "soybean" -> 4500.0
+            else -> 0.0
         }
     }
 
     fun addCrop(
         name: String,
         quantity: Int,
-        rate: Int,
+        rate: Double,
         location: String,
         category: Category,
         sellerName: String,
@@ -689,8 +735,18 @@ class MarketplaceViewModel : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val currentUser = AuthHelper.getCurrentUserEmail()
+                println("Debug: Adding crop with name: $name, category: $category") // Debug log
                 
+                val currentUser = AuthHelper.getCurrentUserEmail()
+                val currentUserId = AuthHelper.getCurrentUserId()
+                
+                if (currentUser == null || currentUserId == null) {
+                    _error.value = "User must be logged in to add crops"
+                    return@launch
+                }
+
+                val initialStatus = if (quantity <= 0) "unavailable" else "available"
+
                 val cropData = hashMapOf(
                     "name" to name,
                     "quantity" to quantity,
@@ -700,14 +756,34 @@ class MarketplaceViewModel : ViewModel() {
                     "sellerName" to sellerName,
                     "sellerContact" to sellerContact,
                     "sellerEmail" to currentUser,
-                    "status" to "AVAILABLE",
-                    "timestamp" to com.google.firebase.Timestamp.now(),
-                    "buyerDetails" to emptyList<Map<String, Any>>()
+                    "sellerId" to currentUserId,
+                    "status" to initialStatus,
+                    "createdAt" to com.google.firebase.Timestamp.now(),
+                    "timestamp" to com.google.firebase.Timestamp.now()
                 )
-
-                cropsCollection.add(cropData).await()
-                refresh() // Refresh the data after adding
+                
+                println("Debug: Adding crop directly to Firestore: $cropData") // Debug log
+                
+                // Try adding directly to Firestore first
+                try {
+                    val docRef = db.collection("crops").add(cropData).await()
+                    println("Debug: Successfully added crop to Firestore with ID: ${docRef.id}")
+                } catch (e: Exception) {
+                    println("Debug: Error adding crop to Firestore directly: ${e.message}")
+                    
+                    // If direct add fails, try through Cloud Function
+                    println("Debug: Trying through Cloud Function")
+                    val result = functions
+                        .getHttpsCallable("addCrop")
+                        .call(cropData)
+                        .await()
+                    println("Debug: Cloud function result: $result")
+                }
+                
+                // Refresh the data after adding
+                setupRealTimeListeners()
             } catch (e: Exception) {
+                println("Debug: Error adding crop: ${e.message}") // Debug log
                 _error.value = "Failed to add crop: ${e.message}"
             } finally {
                 _isLoading.value = false
@@ -719,52 +795,320 @@ class MarketplaceViewModel : ViewModel() {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                // Get the purchase request document
-                val purchaseRequestRef = db.collection("purchase_requests").document(requestId)
-                val purchaseRequest = purchaseRequestRef.get().await()
-
-                if (purchaseRequest.exists()) {
-                    // Update the purchase request status
-                    purchaseRequestRef.update(
+                // Get the purchase request first
+                val requestDoc = db.collection("purchase_requests").document(requestId).get().await()
+                val requestData = requestDoc.data ?: throw Exception("Purchase request not found")
+                
+                // Update the purchase request status to cancelled
+                db.collection("purchase_requests").document(requestId)
+                    .update(
                         mapOf(
-                            "status" to "CANCELLED",
+                            "status" to "cancelled",
                             "cancelReason" to reason,
-                            "cancelledQuantity" to quantity,
-                            "cancelledAt" to com.google.firebase.Timestamp.now()
+                            "updatedAt" to Timestamp.now()
                         )
                     ).await()
 
-                    // Get the crop ID from the purchase request
-                    val cropId = purchaseRequest.getString("cropId")
-                    if (cropId != null) {
-                        // Get the crop document
-                        val cropRef = cropsCollection.document(cropId)
-                        val cropDoc = cropRef.get().await()
+                // Remove the request from the local list
+                _purchaseRequests.value = _purchaseRequests.value.filter { it.id != requestId }
 
-                        if (cropDoc.exists()) {
-                            // Get current buyer details
-                            val currentBuyerDetails = cropDoc.get("buyerDetails") as? List<Map<String, Any>> ?: emptyList()
-                            val buyerEmail = purchaseRequest.getString("buyerEmail")
-
-                            // Remove this buyer's request from the buyer details
-                            val updatedBuyerDetails = currentBuyerDetails.filter { 
-                                it["contactInfo"] != buyerEmail 
-                            }
-
-                            // Update the crop document
-                            cropRef.update("buyerDetails", updatedBuyerDetails).await()
-                        }
-                    }
-
-                    // Refresh the data
-                    refresh()
-                }
+                // Refresh the data to ensure UI is updated
+                refresh()
+                
             } catch (e: Exception) {
+                println("Debug: Error cancelling purchase request: ${e.message}")
+                e.printStackTrace()
                 _error.value = "Failed to cancel purchase request: ${e.message}"
             } finally {
                 _isLoading.value = false
             }
         }
     }
-}
 
+    fun loadCrops() {
+        viewModelScope.launch {
+            try {
+                val cropsSnapshot = db.collection("crops").get().await()
+                val cropsList = cropsSnapshot.documents.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    
+                    // Helper function to safely convert to Double
+                    fun getDoubleValue(value: Any?): Double {
+                        return when (value) {
+                            is Number -> value.toDouble()
+                            is String -> value.toDoubleOrNull() ?: 0.0
+                            else -> 0.0
+                        }
+                    }
+                    
+                    val quantity = (data["quantity"] as? Number)?.toInt() ?: 0
+                    val status = data["status"] as? String ?: "available"
+                    
+                    // Include the crop if it has quantity > 0 OR if it's marked as sold_out
+                    if (quantity <= 0 && status != "sold_out") return@mapNotNull null
+                    
+                    ListedCrop(
+                        id = doc.id,
+                        name = data["name"] as? String ?: "",
+                        description = data["description"] as? String ?: "",
+                        price = getDoubleValue(data["price"]),
+                        quantity = quantity,
+                        category = Category.valueOf(data["category"] as? String ?: Category.OTHER.name),
+                        imageUrl = data["imageUrl"] as? String ?: "",
+                        farmerId = data["farmerId"]  as? String ?: "",
+                        farmerName = data["farmerName"] as? String ?: "",
+                        createdAt = data["createdAt"] as? Timestamp,
+                        status = status,
+                        rating = getDoubleValue(data["rating"]),
+                        totalRatings = (data["totalRatings"] as? Number)?.toInt() ?: 0,
+                        rate = getDoubleValue(data["rate"]),
+                        location = data["location"] as? String ?: "",
+                        sellerName = data["sellerName"] as? String ?: "Unknown Seller",
+                        sellerContact = data["sellerContact"] as? String ?: "No contact provided",
+                        isOwnListing = data["isOwnListing"] as? Boolean ?: false,
+                        buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
+                            BuyerDetail(
+                                name = buyer["name"]?.toString() ?: "",
+                                contactInfo = buyer["contactInfo"]?.toString() ?: "",
+                                address = buyer["address"]?.toString() ?: "",
+                                requestedQuantity = (buyer["requestedQuantity"] as? Number)?.toInt() ?: 0,
+                                status = buyer["status"]?.toString() ?: "PENDING"
+                            )
+                        } ?: emptyList(),
+                        timestamp = data["timestamp"] as? Timestamp
+                    )
+                }
+                _crops.value = cropsList
+            } catch (e: Exception) {
+                _error.value = "Error loading crops: ${e.message}"
+            }
+        }
+    }
+
+    fun filterCropsByCategory(category: Category?) {
+        _selectedCategory.value = category
+        viewModelScope.launch {
+            try {
+                val query = if (category != null) {
+                    db.collection("crops").whereEqualTo("category", category.name)
+                } else {
+                    db.collection("crops")
+                }
+                
+                val cropsSnapshot = query.get().await()
+                val cropsList = cropsSnapshot.documents.mapNotNull { doc ->
+                    val data = doc.data ?: return@mapNotNull null
+                    val quantity = (data["quantity"] as? Number)?.toInt() ?: 0
+                    val status = data["status"] as? String ?: "available"
+                    
+                    // Include the crop if it has quantity > 0 OR if it's marked as sold_out
+                    if (quantity <= 0 && status != "sold_out") return@mapNotNull null
+                    
+                    ListedCrop(
+                        id = doc.id,
+                        name = data["name"] as? String ?: "",
+                        description = data["description"] as? String ?: "",
+                        price = (data["price"] as? Number)?.toDouble() ?: 0.0,
+                        quantity = quantity,
+                        category = Category.valueOf(data["category"] as? String ?: Category.OTHER.name),
+                        imageUrl = data["imageUrl"] as? String ?: "",
+                        farmerId = data["farmerId"] as? String ?: "",
+                        farmerName = data["farmerName"] as? String ?: "",
+                        createdAt = data["createdAt"] as? Timestamp,
+                        status = status,
+                        rating = (data["rating"] as? Number)?.toDouble() ?: 0.0,
+                        totalRatings = (data["totalRatings"] as? Number)?.toInt() ?: 0,
+                        rate = (data["rate"] as? Number)?.toDouble() ?: 0.0,
+                        location = data["location"] as? String ?: "",
+                        sellerName = data["sellerName"] as? String ?: "Unknown Seller",
+                        sellerContact = data["sellerContact"] as? String ?: "No contact provided",
+                        isOwnListing = data["isOwnListing"] as? Boolean ?: false,
+                        buyerDetails = (data["buyerDetails"] as? List<Map<String, Any>>)?.map { buyer ->
+                            BuyerDetail(
+                                name = buyer["name"]?.toString() ?: "",
+                                contactInfo = buyer["contactInfo"]?.toString() ?: "",
+                                address = buyer["address"]?.toString() ?: "",
+                                requestedQuantity = (buyer["requestedQuantity"] as? Number)?.toInt() ?: 0,
+                                status = buyer["status"]?.toString() ?: "PENDING"
+                            )
+                        } ?: emptyList(),
+                        timestamp = data["timestamp"] as? Timestamp
+                    )
+                }
+                _crops.value = cropsList
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+    fun createCrop(crop: ListedCrop) {
+        viewModelScope.launch {
+            try {
+                val cropData = hashMapOf(
+                    "name" to crop.name,
+                    "description" to crop.description,
+                    "price" to crop.price,
+                    "quantity" to crop.quantity,
+                    "category" to crop.category.name,
+                    "imageUrl" to crop.imageUrl,
+                    "farmerId" to crop.farmerId,
+                    "farmerName" to crop.farmerName,
+                    "rate" to crop.rate,
+                    "location" to crop.location,
+                    "sellerName" to crop.sellerName,
+                    "sellerContact" to crop.sellerContact,
+                    "timestamp" to Timestamp.now(),
+                    "status" to if (crop.quantity <= 0) "unavailable" else "available",
+                    "isOwnListing" to false
+                )
+                
+                db.collection("crops").add(cropData).await()
+                loadCrops()
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+    fun updateCropStatus(cropId: String, newStatus: String) {
+        viewModelScope.launch {
+            try {
+                db.collection("crops").document(cropId)
+                    .update("status", newStatus)
+                    .await()
+                loadCrops()
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
+
+    // Temporary function to migrate data
+    fun migrateData() {
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                functions.getHttpsCallable("migrateData")
+                    .call()
+                    .await()
+                println("Migration completed successfully")
+                refresh() // Refresh the data after migration
+            } catch (e: Exception) {
+                println("Migration failed: ${e.message}")
+                _error.value = "Migration failed: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    private fun updateCropStatusBasedOnQuantity(cropId: String, quantity: Int) {
+        viewModelScope.launch {
+            try {
+                val newStatus = if (quantity <= 0) "unavailable" else "available"
+                db.collection("crops").document(cropId)
+                    .update("status", newStatus)
+                    .addOnSuccessListener {
+                        println("Debug: Updated crop status to $newStatus for crop $cropId")
+                    }
+                    .addOnFailureListener { e ->
+                        println("Debug: Failed to update crop status: ${e.message}")
+                        _error.value = "Failed to update crop status: ${e.message}"
+                    }
+            } catch (e: Exception) {
+                println("Debug: Error updating crop status: ${e.message}")
+                _error.value = "Error updating crop status: ${e.message}"
+            }
+        }
+    }
+
+    fun updateCropQuantity(cropId: String, newQuantity: Int) {
+        viewModelScope.launch {
+            try {
+                db.collection("crops").document(cropId)
+                    .update("quantity", newQuantity)
+                    .addOnSuccessListener {
+                        println("Debug: Updated crop quantity to $newQuantity for crop $cropId")
+                        // Update status based on new quantity
+                        updateCropStatusBasedOnQuantity(cropId, newQuantity)
+                    }
+                    .addOnFailureListener { e ->
+                        println("Debug: Failed to update crop quantity: ${e.message}")
+                        _error.value = "Failed to update crop quantity: ${e.message}"
+                    }
+            } catch (e: Exception) {
+                println("Debug: Error updating crop quantity: ${e.message}")
+                _error.value = "Error updating crop quantity: ${e.message}"
+            }
+        }
+    }
+
+    // Add this function to fetch the price
+    fun fetchTodaysRate(commodity: String) {
+        viewModelScope.launch {
+            _isLoadingPrice.value = true
+            try {
+                // You might want to get the state from user's profile or settings
+                val state = "Maharashtra" // Default state, you can make this configurable
+                val price = AgriPriceService.getCropPrice(commodity, state)
+                _todaysRate.value = price
+            } catch (e: Exception) {
+                _error.value = "Failed to fetch today's rate: ${e.message}"
+            } finally {
+                _isLoadingPrice.value = false
+            }
+        }
+    }
+
+    // Add this function to clear the rate when changing crops
+    fun clearTodaysRate() {
+        _todaysRate.value = null
+    }
+
+    fun updateCropStatus(cropId: String, newQuantity: Int) {
+        viewModelScope.launch {
+            try {
+                if (newQuantity <= 0) {
+                    // Instead of deleting, mark the crop as sold_out
+                    db.collection("crops").document(cropId)
+                        .update(
+                            mapOf(
+                                "quantity" to 0,
+                                "status" to "sold_out"
+                            )
+                        )
+                        .await()
+                    // Update the local list by updating the crop status
+                    _crops.value = _crops.value.map { crop ->
+                        if (crop.id == cropId) {
+                            crop.copy(quantity = 0, status = "sold_out")
+                        } else {
+                            crop
+                        }
+                    }
+                } else {
+                    // Update the quantity in the database
+                    db.collection("crops").document(cropId)
+                        .update(
+                            mapOf(
+                                "quantity" to newQuantity,
+                                "status" to "available"
+                            )
+                        )
+                        .await()
+                    // Update the local list
+                    _crops.value = _crops.value.map { crop ->
+                        if (crop.id == cropId) {
+                            crop.copy(quantity = newQuantity, status = "available")
+                        } else {
+                            crop
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                _error.value = "Error updating crop status: ${e.message}"
+            }
+        }
+    }
+}

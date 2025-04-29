@@ -64,18 +64,24 @@ fun EnhancedProductCard(
                         .offset(x = 8.dp, y = 8.dp),
                     shape = CircleShape,
                     color = when(product.category) {
-                        Category.FRUITS -> Color(0xFFFFB74D)     // Orange
-                        Category.VEGETABLES -> Color(0xFF81C784)  // Green
-                        Category.OILSEEDS -> Color(0xFFFFD54F)   // Yellow
-                        Category.GRAINS -> Color(0xFFBF360C)     // Deep Orange
+                        Category.GRAINS -> Color(0xFF8D6E63)
+                        Category.VEGETABLES -> Color(0xFF4CAF50)
+                        Category.FRUITS -> Color(0xFFE91E63)
+                        Category.DAIRY -> Color(0xFF2196F3)
+                        Category.MEAT -> Color(0xFFF44336)
+                        Category.OILSEEDS -> Color(0xFFFFC107)
+                        Category.OTHER -> Color(0xFF9E9E9E)
                     }
                 ) {
                     Icon(
                         imageVector = when(product.category) {
-                            Category.FRUITS -> Icons.Default.Favorite
-                            Category.VEGETABLES -> Icons.Default.Eco
-                            Category.OILSEEDS -> Icons.Default.WaterDrop
-                            Category.GRAINS -> Icons.Default.Grass
+                            Category.GRAINS -> Icons.Filled.Grain
+                            Category.VEGETABLES -> Icons.Filled.LocalFlorist
+                            Category.FRUITS -> Icons.Filled.LocalDining
+                            Category.DAIRY -> Icons.Filled.LocalDining
+                            Category.MEAT -> Icons.Filled.Restaurant
+                            Category.OILSEEDS -> Icons.Filled.OilBarrel
+                            Category.OTHER -> Icons.Filled.Category
                         },
                         contentDescription = product.category.name,
                         modifier = Modifier.padding(8.dp),
@@ -125,7 +131,15 @@ fun EnhancedProductCard(
                 }
                 
                 Text(
-                    text = product.category.name,
+                    text = when(product.category) {
+                        Category.GRAINS -> "Grains"
+                        Category.VEGETABLES -> "Vegetables"
+                        Category.FRUITS -> "Fruits"
+                        Category.DAIRY -> "Dairy"
+                        Category.MEAT -> "Meat"
+                        Category.OILSEEDS -> "Oilseeds"
+                        Category.OTHER -> "Other"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.Gray
                 )
@@ -172,18 +186,24 @@ fun EnhancedProductItem(
                     .offset(y = 20.dp),
                 shape = CircleShape,
                 color = when(product.category) {
-                    Category.FRUITS -> Color(0xFFFFB74D)     // Orange
-                    Category.VEGETABLES -> Color(0xFF81C784)  // Green
-                    Category.OILSEEDS -> Color(0xFFFFD54F)   // Yellow
-                    Category.GRAINS -> Color(0xFFBF360C)     // Deep Orange
+                    Category.GRAINS -> Color(0xFF8D6E63)
+                    Category.VEGETABLES -> Color(0xFF4CAF50)
+                    Category.FRUITS -> Color(0xFFE91E63)
+                    Category.DAIRY -> Color(0xFF2196F3)
+                    Category.MEAT -> Color(0xFFF44336)
+                    Category.OILSEEDS -> Color(0xFFFFC107)
+                    Category.OTHER -> Color(0xFF9E9E9E)
                 }
             ) {
                 Icon(
                     imageVector = when(product.category) {
-                        Category.FRUITS -> Icons.Default.Favorite
-                        Category.VEGETABLES -> Icons.Default.Eco
-                        Category.OILSEEDS -> Icons.Default.WaterDrop
-                        Category.GRAINS -> Icons.Default.Grass
+                        Category.GRAINS -> Icons.Filled.Grain
+                        Category.VEGETABLES -> Icons.Filled.LocalFlorist
+                        Category.FRUITS -> Icons.Filled.LocalDining
+                        Category.DAIRY -> Icons.Filled.LocalDining
+                        Category.MEAT -> Icons.Filled.Restaurant
+                        Category.OILSEEDS -> Icons.Filled.OilBarrel
+                        Category.OTHER -> Icons.Filled.Category
                     },
                     contentDescription = product.category.name,
                     modifier = Modifier.padding(8.dp),

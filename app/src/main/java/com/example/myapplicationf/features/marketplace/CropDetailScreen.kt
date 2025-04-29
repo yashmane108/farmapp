@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myapplicationf.auth.AuthHelper
 import com.example.myapplicationf.features.marketplace.models.BuyerDetail
 import com.example.myapplicationf.features.marketplace.models.ListedCrop
@@ -25,53 +26,45 @@ import kotlinx.coroutines.launch
 @Composable
 fun CropDetailScreen(
     crop: ListedCrop,
-    onNavigateUp: () -> Unit,
-    viewModel: MarketplaceViewModel
+    onBackPressed: () -> Unit,
+    viewModel: MarketplaceViewModel = viewModel()
 ) {
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     
-    // Form state
-    var buyerName by remember { mutableStateOf(AuthHelper.getCurrentUserEmail()?.substringBefore('@') ?: "") }
-    var address by remember { mutableStateOf("") }
-    var quantity by remember { mutableStateOf("1") }
-    var contactNumber by remember { mutableStateOf("") }
-    var showSuccessDialog by remember { mutableStateOf(false) }
+    var showPurchaseDialog by remember { mutableStateOf(false) }
+    var selectedQuantity by remember { mutableStateOf(1f) }
+    var buyerName by remember { mutableStateOf("") }
+    var buyerPhone by remember { mutableStateOf("") }
+    var deliveryAddress by remember { mutableStateOf("") }
+    var isPhoneValid by remember { mutableStateOf(true) }
     
     // Validation
-    val maxQuantity = crop.quantity
+    val maxQuantity = crop.quantity.toFloat()
     val isQuantityValid = try {
-        quantity.toInt() in 1..maxQuantity
+        selectedQuantity in 1f..maxQuantity
     } catch (e: NumberFormatException) {
         false
     }
     
-    val isContactNumberValid = contactNumber.length == 10 && contactNumber.all { it.isDigit() }
-    val isFormValid = buyerName.isNotBlank() && address.isNotBlank() && isQuantityValid && isContactNumberValid
+    val isFormValid = buyerName.isNotBlank() && buyerPhone.isNotBlank() && deliveryAddress.isNotBlank() && isQuantityValid
     
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(crop.name, color = HeaderText) },
+                title = { Text("Crop Details") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateUp) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "Back",
-                            tint = HeaderIcon
-                        )
+                    IconButton(onClick = onBackPressed) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = HeaderBackground
-                )
+                }
             )
         }
-    ) { padding ->
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(paddingValues)
                 .padding(16.dp)
                 .verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -123,62 +116,37 @@ fun CropDetailScreen(
                     )
                     
                     OutlinedTextField(
-                        value = address,
-                        onValueChange = { address = it },
+                        value = buyerPhone,
+                        onValueChange = { newValue ->
+                            // Only allow digits and limit to 10 characters
+                            if (newValue.length <= 10 && newValue.all { it.isDigit() }) {
+                                buyerPhone = newValue
+                            }
+                        },
+                        label = { Text("Phone Number") },
+                        supportingText = { Text("Enter 10-digit mobile number") },
+                        modifier = Modifier.fillMaxWidth(),
+                        isError = !isPhoneValid && buyerPhone.isNotBlank()
+                    )
+                    
+                    OutlinedTextField(
+                        value = deliveryAddress,
+                        onValueChange = { deliveryAddress = it },
                         label = { Text("Delivery Address") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     
-                    OutlinedTextField(
-                        value = quantity,
-                        onValueChange = { quantity = it },
-                        label = { Text("Quantity (kg)") },
-                        supportingText = { Text("Maximum available: $maxQuantity kg") },
-                        modifier = Modifier.fillMaxWidth(),
-                        isError = !isQuantityValid && quantity.isNotBlank()
+                    Slider(
+                        value = selectedQuantity,
+                        onValueChange = { selectedQuantity = it },
+                        valueRange = 1f..crop.quantity.toFloat(),
+                        steps = crop.quantity - 1
                     )
                     
-                    OutlinedTextField(
-                        value = contactNumber,
-                        onValueChange = { newValue ->
-                            // Only allow digits and limit to 10 characters
-                            if (newValue.length <= 10 && newValue.all { it.isDigit() }) {
-                                contactNumber = newValue
-                            }
-                        },
-                        label = { Text("Contact Number") },
-                        supportingText = { Text("Enter 10-digit mobile number") },
-                        modifier = Modifier.fillMaxWidth(),
-                        isError = !isContactNumberValid && contactNumber.isNotBlank()
-                    )
-                    
-                    val totalAmount = try {
-                        "₹${quantity.toInt() * crop.rate}"
-                    } catch (e: NumberFormatException) {
-                        "₹0"
-                    }
-                    
-                    Text(
-                        text = "Total Amount: $totalAmount",
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("Selected Quantity: ${selectedQuantity.toInt()} kg")
                     
                     Button(
-                        onClick = {
-                            if (isFormValid) {
-                                coroutineScope.launch {
-                                    val buyerDetail = BuyerDetail(
-                                        name = buyerName,
-                                        contactInfo = contactNumber,
-                                        address = address,
-                                        requestedQuantity = quantity.toInt()
-                                    )
-                                    
-                                    viewModel.sendPurchaseRequest(crop.id, buyerDetail)
-                                    showSuccessDialog = true
-                                }
-                            }
-                        },
+                        onClick = { showPurchaseDialog = true },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = isFormValid
                     ) {
@@ -189,22 +157,58 @@ fun CropDetailScreen(
         }
     }
     
-    if (showSuccessDialog) {
+    if (showPurchaseDialog) {
         AlertDialog(
-            onDismissRequest = {
-                showSuccessDialog = false
-                onNavigateUp()
+            onDismissRequest = { showPurchaseDialog = false },
+            title = { Text("Purchase Request") },
+            text = {
+                Column {
+                    TextField(
+                        value = buyerName,
+                        onValueChange = { buyerName = it },
+                        label = { Text("Your Name") }
+                    )
+                    TextField(
+                        value = buyerPhone,
+                        onValueChange = { buyerPhone = it },
+                        label = { Text("Phone Number") }
+                    )
+                    TextField(
+                        value = deliveryAddress,
+                        onValueChange = { deliveryAddress = it },
+                        label = { Text("Delivery Address") }
+                    )
+                    Slider(
+                        value = selectedQuantity,
+                        onValueChange = { selectedQuantity = it },
+                        valueRange = 1f..crop.quantity.toFloat(),
+                        steps = crop.quantity - 1
+                    )
+                    Text("Selected Quantity: ${selectedQuantity.toInt()} kg")
+                }
             },
-            title = { Text("Success") },
-            text = { Text("Your purchase request has been sent to the seller. They will contact you shortly.") },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
-                        showSuccessDialog = false
-                        onNavigateUp()
-                    }
+                        val buyerDetail = BuyerDetail(
+                            name = buyerName,
+                            contactInfo = buyerPhone,
+                            address = deliveryAddress,
+                            requestedQuantity = selectedQuantity.toInt(),
+                            status = "PENDING"
+                        )
+                        viewModel.sendPurchaseRequest(crop.id, buyerDetail)
+                        showPurchaseDialog = false
+                        onBackPressed()
+                    },
+                    enabled = isFormValid
                 ) {
-                    Text("OK")
+                    Text("Submit")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPurchaseDialog = false }) {
+                    Text("Cancel")
                 }
             }
         )

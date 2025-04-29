@@ -39,4 +39,11 @@ object AuthHelper {
     fun getCurrentUserEmail(): String? {
         return auth.currentUser?.email
     }
+
+    /**
+     * Get the current authenticated user's ID
+     */
+    fun getCurrentUserId(): String? {
+        return auth.currentUser?.uid
+    }
 } 

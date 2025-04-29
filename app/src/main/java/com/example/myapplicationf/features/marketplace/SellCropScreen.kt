@@ -26,16 +26,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
 import androidx.navigation.NavController
+import androidx.compose.animation.AnimatedVisibility
 import com.example.myapplicationf.features.marketplace.models.Category
 import com.example.myapplicationf.auth.AuthHelper
 import com.example.myapplicationf.ui.theme.HeaderBackground
 import com.example.myapplicationf.ui.theme.HeaderText
 import com.example.myapplicationf.ui.theme.HeaderIcon
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 
 private val DarkGreen = Color(0xFF084521)
-private val LightGreen = Color(0xFF4CAF50)
+private val LightGreen = Color(0xFF236C24)
 private val BackgroundGray = Color(0xFFF5F5F5)
+private val SuccessGreen = Color(0xFF1B5E20)
+private val SuccessLightGreen = Color(0xFFE8F5E9)
+private val WarningAmber = Color(0xFFE65100)
+private val WarningLightAmber = Color(0xFFFFF3E0)
+private val ErrorRed = Color(0xFFB71C1C)
+private val ErrorLightRed = Color(0xFFFFEBEE)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,7 +58,6 @@ fun SellCropScreen(
     var quantity by remember { mutableStateOf(0) }
     var location by remember { mutableStateOf("") }
     var locationExpanded by remember { mutableStateOf(false) }
-    var useTodaysRate by remember { mutableStateOf(true) }
     var customRate by remember { mutableStateOf("") }
     var contactNumber by remember { mutableStateOf("") }
     var categoryExpanded by remember { mutableStateOf(false) }
@@ -61,23 +70,28 @@ fun SellCropScreen(
     var villageSearchQuery by remember { mutableStateOf("") }
     var selectedVillage by remember { mutableStateOf<String?>(null) }
     
-    val foodsByCategory by viewModel.foodsByCategory.collectAsState()
+    // Add state for seller name
+    var sellerName by remember { mutableStateOf(getUserInfo().name) }
+    
+    val foodsByCategory by viewModel.foodsByCategory.collectAsState(initial = emptyMap())
     val availableCrops = selectedCategory?.let { foodsByCategory[it] } ?: emptyList()
     val talukas by viewModel.talukas.collectAsState()
     val selectedTaluka by viewModel.selectedTaluka.collectAsState()
     val villages by viewModel.villages.collectAsState()
     val filteredVillages by viewModel.filteredVillages.collectAsState()
     
-    val currentRate = if (useTodaysRate) {
-        viewModel.getTodaysRate("").toDouble()
-    } else {
-        customRate.toDoubleOrNull() ?: 0.0
-    }
+    // Calculate total amount based on custom rate and quantity
+    val rate = customRate.toDoubleOrNull() ?: 0.0
+    val totalAmount = rate * quantity
 
-    val totalAmount = currentRate * quantity.toDouble()
-    
     // Create a scroll state
     val scrollState = rememberScrollState()
+
+    LaunchedEffect(selectedCrop) {
+        selectedCrop?.let { crop ->
+            viewModel.fetchTodaysRate(crop)
+        } ?: viewModel.clearTodaysRate()
+    }
 
     Scaffold(
         topBar = {
@@ -114,7 +128,7 @@ fun SellCropScreen(
                         .padding(vertical = 8.dp)
                 ) {
                     OutlinedTextField(
-                        value = selectedCategory?.name ?: "",
+                        value = selectedCategory?.displayName ?: "",
                         onValueChange = {},
                         readOnly = true,
                         label = { Text("Food Category") },
@@ -146,7 +160,7 @@ fun SellCropScreen(
                                 shape = RoundedCornerShape(8.dp)
                             )
                     ) {
-                        Category.values().forEach { category ->
+                        listOf(Category.GRAINS, Category.VEGETABLES, Category.FRUITS, Category.OILSEEDS).forEach { category ->
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -159,7 +173,7 @@ fun SellCropScreen(
                                     .padding(16.dp)
                             ) {
                                 Text(
-                                    text = category.name,
+                                    text = category.displayName,
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = Color.Black
                                 )
@@ -241,59 +255,12 @@ fun SellCropScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Rate Selection
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Switch(
-                        checked = useTodaysRate,
-                        onCheckedChange = { useTodaysRate = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = LightGreen,
-                            uncheckedThumbColor = Color.DarkGray,
-                            uncheckedTrackColor = Color.LightGray
-                        )
-                    )
-                    Text("Today's Rate: Rs. 100")
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Switch(
-                        checked = !useTodaysRate,
-                        onCheckedChange = { useTodaysRate = !it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = LightGreen,
-                            uncheckedThumbColor = Color.DarkGray,
-                            uncheckedTrackColor = Color.LightGray
-                        )
-                    )
-                    if (!useTodaysRate) {
-                        OutlinedTextField(
-                            value = customRate,
-                            onValueChange = { customRate = it },
-                            placeholder = { Text("Enter here") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(start = 8.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                unfocusedContainerColor = BackgroundGray,
-                                focusedContainerColor = BackgroundGray,
-                                unfocusedBorderColor = Color.Transparent,
-                                focusedBorderColor = Color.Transparent
-                            ),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true
-                        )
-                    } else {
-                        Text("Enter Your Rate:", modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
+                // TodaysRateSection
+                TodaysRateSection(
+                    selectedCrop = selectedCrop,
+                    viewModel = viewModel,
+                    onCustomRateChange = { customRate = it }
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -309,27 +276,27 @@ fun SellCropScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
                             onClick = { if (quantity > 0) quantity-- },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .background(LightGreen, CircleShape)
                         ) {
                             Icon(Icons.Default.Remove, "Decrease", tint = Color.White)
                         }
                         Text(
                             String.format("%02d Kg", quantity),
-                            fontSize = 20.sp,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                         IconButton(
                             onClick = { quantity++ },
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .background(LightGreen, CircleShape)
                         ) {
                             Icon(Icons.Default.Add, "Increase", tint = Color.White)
@@ -337,45 +304,34 @@ fun SellCropScreen(
                     }
                 }
 
-                // Weight Chips
-                Row(
+                // Weight Chips using LazyVerticalGrid
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(4),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(80.dp)
                         .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    listOf(5, 15, 25, 35).forEach { kg ->
-                        OutlinedButton(
-                            onClick = { quantity = kg },
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = BackgroundGray
-                            ),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(width = 0.dp)
-                        ) {
-                            Text("$kg Kg")
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    content = {
+                        items(listOf(5, 15, 25, 35, 45, 55, 65, 75)) { kg ->
+                            OutlinedButton(
+                                onClick = { quantity = kg },
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = BackgroundGray
+                                ),
+                                border = ButtonDefaults.outlinedButtonBorder.copy(width = 0.dp)
+                            ) {
+                                Text(
+                                    "$kg Kg",
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    listOf(45, 55, 65, 75).forEach { kg ->
-                        OutlinedButton(
-                            onClick = { quantity = kg },
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = BackgroundGray
-                            ),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(width = 0.dp)
-                        ) {
-                            Text("$kg Kg")
-                        }
-                    }
-                }
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -403,7 +359,23 @@ fun SellCropScreen(
                     singleLine = true
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                // Add this after the contact number field and before the location section
+                OutlinedTextField(
+                    value = sellerName,
+                    onValueChange = { sellerName = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    label = { Text("Seller Name") },
+                    placeholder = { Text("Enter your name") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
 
                 // Location
                 Column(
@@ -607,24 +579,21 @@ fun SellCropScreen(
                         .padding(16.dp)
                 ) {
                     Text(
-                        text = "Total Amount: Rs. $totalAmount",
+                        text = "Total Amount: Rs. ${String.format("%.2f", totalAmount)}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 18.sp
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            if (selectedCrop != null && quantity > 0 && selectedVillage != null && contactNumber.length == 10) {
-                                // Get the current user's information
-                                val currentUser = getUserInfo()
-                                
+                            if (selectedCrop != null && quantity > 0 && selectedVillage != null && contactNumber.length == 10 && sellerName.isNotBlank()) {
                                 viewModel.addCrop(
                                     name = selectedCrop!!,
                                     quantity = quantity,
-                                    rate = if (useTodaysRate) 100 else customRate.toIntOrNull() ?: 0,
+                                    rate = rate,
                                     location = "$selectedTaluka, $selectedVillage",
                                     category = selectedCategory!!,
-                                    sellerName = currentUser.name,
+                                    sellerName = sellerName,
                                     sellerContact = contactNumber
                                 )
                                 onBackPressed()
@@ -632,13 +601,121 @@ fun SellCropScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = LightGreen),
-                        enabled = selectedCrop != null && quantity > 0 && selectedVillage != null && contactNumber.length == 10
+                        enabled = selectedCrop != null && quantity > 0 && selectedVillage != null && contactNumber.length == 10 && sellerName.isNotBlank()
                     ) {
                         Text("Sell")
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun TodaysRateSection(
+    selectedCrop: String?,
+    viewModel: MarketplaceViewModel,
+    onCustomRateChange: (String) -> Unit
+) {
+    var useCustomRate by remember { mutableStateOf(false) }
+    var customRate by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Rate:",
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Switch(
+                checked = useCustomRate,
+                onCheckedChange = { 
+                    useCustomRate = it
+                    if (!it) {
+                        customRate = ""
+                        onCustomRateChange("")
+                    }
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.primary,
+                    checkedTrackColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Enter Your Rate:",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+
+        AnimatedVisibility(visible = useCustomRate) {
+            OutlinedTextField(
+                value = customRate,
+                onValueChange = { newValue ->
+                    // Only allow numbers and decimal point
+                    if (newValue.isEmpty() || newValue.matches(Regex("^\\d*\\.?\\d*$"))) {
+                        customRate = newValue
+                        onCustomRateChange(newValue)
+                    }
+                },
+                label = { Text("Custom Rate (Rs.)") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedContainerColor = BackgroundGray,
+                    focusedContainerColor = BackgroundGray,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedBorderColor = Color.Transparent
+                )
+            )
+        }
+    }
+}
+
+@Composable
+fun StatusTag(
+    status: String,
+    modifier: Modifier = Modifier
+) {
+    val (backgroundColor, textColor) = when (status.lowercase()) {
+        "available" -> SuccessLightGreen to SuccessGreen
+        "pending" -> WarningLightAmber to WarningAmber
+        "unavailable", "sold" -> ErrorLightRed to ErrorRed
+        else -> SuccessLightGreen to SuccessGreen
+    }
+
+    Surface(
+        modifier = modifier,
+        color = backgroundColor,
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Text(
+            text = status.replaceFirstChar { it.uppercase() },
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            color = textColor,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = FontWeight.Medium
+            )
+        )
     }
 }
 

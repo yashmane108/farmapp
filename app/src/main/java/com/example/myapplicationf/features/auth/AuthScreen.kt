@@ -51,8 +51,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 
 class AuthViewModel : ViewModel() {
     private val auth = FirebaseAuth.getInstance()
-    private val db: FirebaseFirestore = Firebase.firestore
-    private val usersCollection = db.collection("users")
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Initial)
     val authState: StateFlow<AuthState> = _authState
@@ -70,19 +68,7 @@ class AuthViewModel : ViewModel() {
             try {
                 _authState.value = AuthState.Loading
                 val credential = GoogleAuthProvider.getCredential(idToken, null)
-                val result = auth.signInWithCredential(credential).await()
-                
-                // Store user data in Firestore
-                result.user?.let { user ->
-                    val firstName = user.displayName?.split(" ")?.firstOrNull() ?: ""
-                    val userData = hashMapOf(
-                        "email" to user.email,
-                        "firstName" to firstName,
-                        "createdAt" to com.google.firebase.Timestamp.now()
-                    )
-                    usersCollection.document(user.uid).set(userData).await()
-                }
-                
+                auth.signInWithCredential(credential).await()
                 _authState.value = AuthState.Success
             } catch (e: Exception) {
                 _authState.value = AuthState.Error(e.message ?: "Google Sign-In failed")
@@ -106,19 +92,7 @@ class AuthViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 _authState.value = AuthState.Loading
-                val result = auth.createUserWithEmailAndPassword(email, password).await()
-                
-                // Store user data in Firestore with firstName
-                result.user?.let { user ->
-                    val userData = hashMapOf(
-                        "email" to email,
-                        "firstName" to firstName,
-                        "createdAt" to com.google.firebase.Timestamp.now()
-                    )
-                    usersCollection.document(user.uid).set(userData).await()
-                }
-                
-                // Sign in the user directly after registration
+                auth.createUserWithEmailAndPassword(email, password).await()
                 _authState.value = AuthState.Success
             } catch (e: Exception) {
                 _authState.value = AuthState.Error(e.message ?: "Registration failed")
@@ -167,7 +141,8 @@ fun AuthScreen(
     var showResetDialog by remember { mutableStateOf(false) }
     var resetEmail by remember { mutableStateOf("") }
     var showResetSuccess by remember { mutableStateOf(false) }
-    
+    var errorMessage by remember { mutableStateOf("") }
+
     val authState by viewModel.authState.collectAsState()
     val context = LocalContext.current
     val imageBitmap = remember {
@@ -175,7 +150,20 @@ fun AuthScreen(
             BitmapFactory.decodeStream(it).asImageBitmap() 
         }
     }
-    
+
+    // Reset form and error state when AuthScreen is first shown or after logout
+    LaunchedEffect(isLogin, authState) {
+        if (authState is AuthState.Initial || authState is AuthState.Success) {
+            email = ""
+            password = ""
+            firstName = ""
+            errorMessage = ""
+        }
+        if (authState is AuthState.Error) {
+            errorMessage = (authState as AuthState.Error).message
+        }
+    }
+
     // Google Sign-In launcher
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -207,6 +195,18 @@ fun AuthScreen(
             }
             else -> {}
         }
+    }
+
+    // Show error message if present
+    if (errorMessage.isNotEmpty()) {
+        Snackbar(
+            action = {
+                TextButton(onClick = { errorMessage = "" }) {
+                    Text("Dismiss")
+                }
+            },
+            modifier = Modifier.padding(8.dp)
+        ) { Text(errorMessage) }
     }
 
     // Reset Password Dialog
@@ -516,16 +516,6 @@ fun AuthScreen(
                 )
             }
 
-            // Error Message
-            if (authState is AuthState.Error) {
-                Text(
-                    text = (authState as AuthState.Error).message,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
-            }
-            
             // Registration Success Message
             if (showRegistrationSuccess) {
                 Text(

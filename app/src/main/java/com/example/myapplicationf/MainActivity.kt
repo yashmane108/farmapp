@@ -31,6 +31,7 @@ import com.example.myapplicationf.features.marketplace.MarketplaceScreen
 import com.example.myapplicationf.features.marketplace.MarketplaceViewModel
 import com.example.myapplicationf.features.marketplace.SellCropScreen
 import com.example.myapplicationf.features.marketplace.FarmerDashboardScreen
+import com.example.myapplicationf.features.marketplace.models.ListedCrop
 import com.example.myapplicationf.features.news.CommunityNewsScreen
 import com.example.myapplicationf.features.protection.CropProtectionScreen
 import com.example.myapplicationf.features.weather.WeatherScreen
@@ -122,6 +123,9 @@ fun AppContent() {
         )
         Screen.FarmerDashboard -> FarmerDashboardScreen(
             onBackPressed = { currentScreen = Screen.Marketplace },
+            onNavigateToCropDetails = { cropId -> 
+                currentScreen = Screen.CropDetail(cropId)
+            },
             viewModel = viewModel()
         )
         Screen.AboutUs -> AboutUsScreen(
@@ -139,7 +143,7 @@ fun AppContent() {
             selectedCrop?.let { crop ->
                 CropDetailScreen(
                     crop = crop,
-                    onNavigateUp = { currentScreen = Screen.Marketplace },
+                    onBackPressed = { currentScreen = Screen.Marketplace },
                     viewModel = marketplaceViewModel
                 )
             }
@@ -437,4 +441,13 @@ fun getIconForType(iconType: String): ImageVector {
         "About" -> Icons.Default.Info
         else -> Icons.Default.Info
     }
+}
+
+@Composable
+fun CropDetailScreen(
+    crop: ListedCrop,
+    onBackPressed: () -> Unit,
+    viewModel: MarketplaceViewModel
+) {
+    // ... rest of the code ...
 }
